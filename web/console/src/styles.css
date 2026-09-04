@@ -1,0 +1,104 @@
+body { margin: 0; font-family: "Segoe UI", sans-serif; background: #f5f7fb; }
+.center-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+.admin-wrap { padding: 24px; }
+.admin-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.play-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 16px 72px;
+  background:
+    radial-gradient(circle at 20% 0%, #fff6e0 0%, transparent 42%),
+    radial-gradient(circle at 90% 10%, #ffe8d2 0%, transparent 38%),
+    linear-gradient(180deg, #fffaf3 0%, #f4efe6 100%);
+  color: #3b2a14;
+}
+.play-loading { justify-content: center; font-size: 16px; }
+.play-topbar {
+  width: min(880px, 100%);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.play-brand {
+  font-weight: 700;
+  letter-spacing: .18em;
+  color: #8a6914;
+}
+.play-user { display: flex; align-items: center; gap: 12px; color: #5c4630; }
+.play-hint { color: #8a7460; font-size: 13px; }
+.play-hero { text-align: center; margin: 8px 0 20px; }
+.play-title { margin: 0 !important; color: #2b1d10 !important; }
+.play-meta { margin: 8px 0 0; color: #6b5340; font-size: 14px; }
+.play-meta b { color: #9b2c2c; }
+.play-meta i {
+  display: inline-block;
+  width: 4px; height: 4px; border-radius: 50%;
+  background: #c5a059; margin: 0 10px 3px;
+}
+.play-auth-card { width: 380px; margin-bottom: 20px; box-shadow: 0 12px 40px rgba(90, 60, 20, .08); border-radius: 16px !important; }
+.wheel-stage { position: relative; width: 360px; height: 360px; margin: 8px 0 8px; }
+.wheel-glow {
+  position: absolute; inset: 18px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(197,160,89,.28), transparent 68%);
+  filter: blur(6px);
+}
+.wheel-ring {
+  position: absolute; inset: 10px;
+  border-radius: 50%;
+  padding: 10px;
+  background: conic-gradient(from 0deg, #f3e2b3, #b8892d, #f7e7b8, #8a6914, #f3e2b3);
+  box-shadow: 0 18px 40px rgba(90, 60, 20, .18), inset 0 1px 0 rgba(255,255,255,.7);
+}
+.wheel {
+  width: 100%; height: 100%; display: block; border-radius: 50%;
+  background: #fff;
+  transition: transform 3.1s cubic-bezier(.12,.7,.1,1);
+}
+.wheel-hub {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%);
+  width: 72px; height: 72px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff6d6, #c5a059 55%, #7a5814);
+  box-shadow: 0 8px 18px rgba(90,60,20,.25), inset 0 1px 0 #fff;
+  display: grid; place-items: center; z-index: 2;
+}
+.wheel-hub em { font-style: normal; font-weight: 800; color: #fffdf6; letter-spacing: .08em; }
+.pointer { position: absolute; left: 50%; top: -2px; transform: translateX(-50%); z-index: 3; display: flex; flex-direction: column; align-items: center; }
+.pointer-head {
+  width: 0; height: 0;
+  border-left: 11px solid transparent;
+  border-right: 11px solid transparent;
+  border-top: 22px solid #9b2c2c;
+  filter: drop-shadow(0 3px 4px rgba(0,0,0,.18));
+}
+.pointer-stem { width: 8px; height: 14px; background: linear-gradient(#d4b06a, #8a6914); border-radius: 0 0 4px 4px; margin-top: -2px; }
+.draw-btn {
+  margin-top: 18px;
+  min-width: 180px;
+  height: 46px !important;
+  border: none !important;
+  background: linear-gradient(180deg, #d4b06a, #9b2c2c) !important;
+  box-shadow: 0 10px 22px rgba(155, 44, 44, .22);
+}
+.feed-card {
+  width: min(520px, 100%);
+  margin-top: 28px;
+  border-radius: 16px !important;
+  box-shadow: 0 12px 40px rgba(90, 60, 20, .08);
+}
+.feed-empty { margin: 0; color: #8a7460; text-align: center; }
+.marquee { overflow: hidden; mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent); }
+.marquee-track {
+  display: flex; gap: 36px; width: max-content;
+  animation: marquee 22s linear infinite;
+  padding: 6px 0;
+}
+.feed-win { color: #9b2c2c; font-weight: 600; white-space: nowrap; }
+.feed-thanks { color: #8a7460; white-space: nowrap; }
+.result-name { font-size: 18px; font-weight: 600; color: #2b1d10; }
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
