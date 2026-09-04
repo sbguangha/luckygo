@@ -4,7 +4,7 @@ tidy:
 	go mod tidy
 
 test:
-	go test ./internal/engine ./internal/xerr ./internal/tokenkit -count=1
+	go test ./internal/engine ./internal/xerr ./internal/tokenkit ./internal/lottery -count=1
 
 api:
 	go run ./app/gateway -f app/gateway/etc/luckygo-api.yaml
