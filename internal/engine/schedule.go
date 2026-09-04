@@ -7,16 +7,16 @@ import (
 )
 
 type ScheduledWin struct {
-	UserID  uint64
-	PrizeID uint64
-	Kind    string
-	Token   string
-	Rank    int
+	ParticipantID uint64
+	PrizeID       uint64
+	Kind          string
+	Token         string
+	Rank          int
 }
 
 // AssignScheduled deterministically assigns limited real prizes to shuffled participants.
-// Thank-you prizes are ignored. If players < stock, leftover prizes are unissued (not recycled).
-func AssignScheduled(userIDs []uint64, prizes []PrizeSpec, seedHex string) ([]ScheduledWin, error) {
+// participantIDs 为 participants 表主键；人数不足时剩余奖项流奖（不循环发）。
+func AssignScheduled(participantIDs []uint64, prizes []PrizeSpec, seedHex string) ([]ScheduledWin, error) {
 	seed, err := hex.DecodeString(seedHex)
 	if err != nil || len(seed) < 16 {
 		s, e := RandomSeed()
@@ -26,7 +26,7 @@ func AssignScheduled(userIDs []uint64, prizes []PrizeSpec, seedHex string) ([]Sc
 		seed, _ = hex.DecodeString(s)
 		seedHex = s
 	}
-	ids := append([]uint64(nil), userIDs...)
+	ids := append([]uint64(nil), participantIDs...)
 	if err := shuffleUint64(ids, seed); err != nil {
 		return nil, err
 	}
@@ -34,9 +34,6 @@ func AssignScheduled(userIDs []uint64, prizes []PrizeSpec, seedHex string) ([]Sc
 	rank := 1
 	cursor := 0
 	for _, p := range prizes {
-		if p.Kind == "thank_you" {
-			continue
-		}
 		for i := 0; i < p.Stock; i++ {
 			if cursor >= len(ids) {
 				return wins, nil
@@ -46,11 +43,11 @@ func AssignScheduled(userIDs []uint64, prizes []PrizeSpec, seedHex string) ([]Sc
 				return nil, err
 			}
 			wins = append(wins, ScheduledWin{
-				UserID:  ids[cursor],
-				PrizeID: p.ID,
-				Kind:    p.Kind,
-				Token:   tok,
-				Rank:    rank,
+				ParticipantID: ids[cursor],
+				PrizeID:       p.ID,
+				Kind:          p.Kind,
+				Token:         tok,
+				Rank:          rank,
 			})
 			cursor++
 			rank++
