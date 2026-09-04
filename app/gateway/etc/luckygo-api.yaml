@@ -3,6 +3,7 @@ Host: 0.0.0.0
 Port: 8888
 Timeout: 5000
 MaxConns: 10000
+MaxBytes: 8388608
 Log:
   ServiceName: luckygo-api
   Level: info
@@ -20,3 +21,13 @@ Redis:
   Type: node
 
 PublicBaseUrl: http://localhost:5173
+# 5G 扫码：跑 scripts/expose-5173.ps1 后会写入 .runtime/public-base.url（https 隧道地址），
+# 覆盖上面的 localhost，大屏二维码会自动换成公网链接。有固定域名也可直接改这一行。
+UploadDir: ./data/uploads
+
+# 微信网页授权（认证服务号）。不填则扫码后手动填真实姓名，局域网年会可直接用。
+# 填了之后：WeChat 内打开报名页会先拉昵称，仍要求确认/填写真名。
+# 回调地址必须是下面 PublicBaseUrl + /api/lottery/wechat/callback，并在公众号后台配置同样的授权域名。
+Wechat:
+  AppId: ""
+  AppSecret: ""

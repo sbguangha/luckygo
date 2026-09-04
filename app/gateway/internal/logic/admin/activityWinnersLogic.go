@@ -19,6 +19,6 @@ func NewActivityWinnersLogic(ctx context.Context, svcCtx *svc.ServiceContext) *A
 	return &ActivityWinnersLogic{Logger: logx.WithContext(ctx), ctx: ctx, svcCtx: svcCtx}
 }
 
-func (l *ActivityWinnersLogic) ActivityWinners(req *types.IdPathReq) (*types.WinnersResp, error) {
+func (l *ActivityWinnersLogic) ActivityWinners(req *types.IdPathReq) (*types.AdminWinnersResp, error) {
 	return l.svcCtx.App.WinnersAdmin(l.ctx, req.Id)
 }

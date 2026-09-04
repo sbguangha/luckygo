@@ -16,4 +16,9 @@ type Config struct {
 	}
 	Redis         redis.RedisConf
 	PublicBaseUrl string `json:",default=http://localhost:5173"`
+	UploadDir     string `json:",default=./data/uploads"`
+	Wechat        struct {
+		AppId     string `json:",optional"`
+		AppSecret string `json:",optional"`
+	} `json:",optional"`
 }

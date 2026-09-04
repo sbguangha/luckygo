@@ -2,8 +2,8 @@ syntax = "v1"
 
 info (
 	title:   "LuckyGo"
-	desc:    "Production multi-tenant lottery SaaS"
-	version: "v1"
+	desc:    "Production multi-tenant lottery SaaS: 现场大屏 3D 球抽奖(live) + 到期开奖(scheduled)"
+	version: "v2"
 )
 
 type (
@@ -36,40 +36,74 @@ type (
 		Password string `json:"password"`
 		Nickname string `json:"nickname,optional"`
 	}
+
+	// 奖项：stock=总中奖人数，perRound=单次抽取个数(live)，isAll=未中过本奖即可再抽
 	PrizeInput {
 		Name     string `json:"name"`
-		Kind     string `json:"kind"`
+		Kind     string `json:"kind"` // virtual|physical
 		Stock    int    `json:"stock"`
-		Weight   int    `json:"weight"`
+		PerRound int    `json:"perRound,optional"`
+		IsAll    bool   `json:"isAll,optional"`
 		ImageUrl string `json:"imageUrl,optional"`
 	}
 	CreateActivityReq {
-		Title           string       `json:"title"`
-		Mode            string       `json:"mode"`
-		Timezone        string       `json:"timezone,optional"`
-		StartAt         int64        `json:"startAt"`
-		EndAt           int64        `json:"endAt"`
-		MaxDrawsPerUser int          `json:"maxDrawsPerUser"`
-		MaxEnrollments  int          `json:"maxEnrollments,optional"`
-		Prizes          []PrizeInput `json:"prizes"`
+		Title          string       `json:"title"`
+		Mode           string       `json:"mode"` // live|scheduled
+		RosterSource   string       `json:"rosterSource,optional"` // import|register|both
+		Timezone       string       `json:"timezone,optional"`
+		StartAt        int64        `json:"startAt"`
+		EndAt          int64        `json:"endAt"`
+		MaxEnrollments int          `json:"maxEnrollments,optional"`
+		Prizes         []PrizeInput `json:"prizes"`
+	}
+	UpdateActivityReq {
+		Id             uint64       `path:"id"`
+		Title          string       `json:"title"`
+		Mode           string       `json:"mode"`
+		RosterSource   string       `json:"rosterSource,optional"`
+		Timezone       string       `json:"timezone,optional"`
+		StartAt        int64        `json:"startAt"`
+		EndAt          int64        `json:"endAt"`
+		MaxEnrollments int          `json:"maxEnrollments,optional"`
+		Prizes         []PrizeInput `json:"prizes"`
+	}
+	UiConfig {
+		TopTitle       string `json:"topTitle,optional"`
+		RowCount       int    `json:"rowCount,optional"`
+		CardWidth      int    `json:"cardWidth,optional"`
+		CardHeight     int    `json:"cardHeight,optional"`
+		CardColor      string `json:"cardColor,optional"`
+		LuckyCardColor string `json:"luckyCardColor,optional"`
+		TextColor      string `json:"textColor,optional"`
+		PatternColor   string `json:"patternColor,optional"`
+		Background     string `json:"background,optional"`
+		ShowAvatar     bool   `json:"showAvatar,optional"`
+		ShowPrizeList  bool   `json:"showPrizeList,optional"`
+		PatternList    []int  `json:"patternList,optional"`
+	}
+	UpdateUiConfigReq {
+		Id     uint64   `path:"id"`
+		Config UiConfig `json:"config"`
 	}
 	ActivityBrief {
-		Id              uint64 `json:"id,string"`
-		PublicId        string `json:"publicId"`
-		Title           string `json:"title"`
-		Mode            string `json:"mode"`
-		Status          string `json:"status"`
-		StartAt         int64  `json:"startAt"`
-		EndAt           int64  `json:"endAt"`
-		MaxDrawsPerUser int    `json:"maxDrawsPerUser"`
-		PlayUrl         string `json:"playUrl"`
+		Id           uint64 `json:"id,string"`
+		PublicId     string `json:"publicId"`
+		Title        string `json:"title"`
+		Mode         string `json:"mode"`
+		RosterSource string `json:"rosterSource"`
+		Status       string `json:"status"`
+		StartAt      int64  `json:"startAt"`
+		EndAt        int64  `json:"endAt"`
+		PlayUrl      string `json:"playUrl"`
+		TenantName   string `json:"tenantName"`
 	}
 	PrizeView {
 		Id       uint64 `json:"id,string"`
 		Name     string `json:"name"`
 		Kind     string `json:"kind"`
 		Stock    int    `json:"stock"`
-		Weight   int    `json:"weight"`
+		PerRound int    `json:"perRound"`
+		IsAll    bool   `json:"isAll"`
 		ImageUrl string `json:"imageUrl"`
 		Remain   int    `json:"remain"`
 	}
@@ -78,6 +112,7 @@ type (
 		Prizes       []PrizeView `json:"prizes"`
 		ParticipantN int64       `json:"participantN"`
 		WinN         int64       `json:"winN"`
+		UiConfig     *UiConfig   `json:"uiConfig,optional"`
 	}
 	ListActivityReq {
 		Status string `form:"status,optional"`
@@ -91,18 +126,71 @@ type (
 	PublicIdReq {
 		PublicId string `path:"publicId"`
 	}
-	DrawReq {
-		PublicId       string `json:"publicId"`
+
+	// 参与者名单
+	ParticipantInput {
+		Uid        string `json:"uid"`
+		Name       string `json:"name"`
+		Department string `json:"department,optional"`
+		Identity   string `json:"identity,optional"`
+		AvatarUrl  string `json:"avatarUrl,optional"`
+	}
+	ImportParticipantsReq {
+		Id   uint64             `path:"id"`
+		Rows []ParticipantInput `json:"rows"`
+	}
+	ImportResp {
+		Total  int `json:"total"`
+		Failed int `json:"failed"`
+	}
+	ParticipantItem {
+		Id        uint64 `json:"id,string"`
+		Uid       string `json:"uid"`
+		Name      string `json:"name"`
+		Department string `json:"department"`
+		Identity  string `json:"identity"`
+		AvatarUrl string `json:"avatarUrl"`
+		Source    string `json:"source"`
+		IsWin     bool   `json:"isWin"`
+		CreatedAt int64  `json:"createdAt"`
+	}
+	ParticipantsResp {
+		List []ParticipantItem `json:"list"`
+	}
+	ParticipantPathReq {
+		Id  uint64 `path:"id"`
+		Pid uint64 `path:"pid"`
+	}
+
+	// 现场大屏抽取
+	LiveDrawReq {
+		Id             uint64 `path:"id"`
+		PrizeId        uint64 `json:"prizeId,string"`
 		IdempotencyKey string `json:"idempotencyKey"`
 	}
-	DrawResp {
-		Result      string `json:"result"`
-		PrizeId     string `json:"prizeId"`
-		PrizeName   string `json:"prizeName"`
-		Kind        string `json:"kind"`
-		PrizeToken  string `json:"prizeToken"`
-		RedeemCode  string `json:"redeemCode,optional"`
-		RemainDraws int    `json:"remainDraws"`
+	LiveWinner {
+		ParticipantId uint64 `json:"participantId,string"`
+		Uid           string `json:"uid"`
+		Name          string `json:"name"`
+		Department    string `json:"department"`
+		Identity      string `json:"identity"`
+		AvatarUrl     string `json:"avatarUrl"`
+	}
+	LiveDrawResp {
+		DrawId    string       `json:"drawId"`
+		PrizeId   uint64       `json:"prizeId,string"`
+		PrizeName string       `json:"prizeName"`
+		Kind      string       `json:"kind"`
+		Winners   []LiveWinner `json:"winners"`
+		Remain    int          `json:"remain"`
+	}
+	LiveUndoReq {
+		Id     uint64 `path:"id"`
+		DrawId string `json:"drawId"`
+	}
+
+	EnrollReq {
+		PublicId string `json:"publicId"`
 	}
 	MyPrizeItem {
 		PrizeName  string `json:"prizeName"`
@@ -115,9 +203,6 @@ type (
 	MyPrizesResp {
 		List []MyPrizeItem `json:"list"`
 	}
-	EnrollReq {
-		PublicId string `json:"publicId"`
-	}
 	FillAddressReq {
 		PrizeToken   string `json:"prizeToken"`
 		ContactName  string `json:"contactName"`
@@ -127,6 +212,10 @@ type (
 	RedeemReq {
 		Code string `json:"code"`
 	}
+	OfflineRedeemReq {
+		Id         uint64 `path:"id"`
+		PrizeToken string `json:"prizeToken"`
+	}
 	BlacklistReq {
 		Account string `json:"account"`
 		Reason  string `json:"reason,optional"`
@@ -134,13 +223,32 @@ type (
 	WinnerItem {
 		Nickname  string `json:"nickname"`
 		PrizeName string `json:"prizeName"`
+		Kind      string `json:"kind"`
 		WonAt     int64  `json:"wonAt"`
 	}
 	WinnersResp {
 		List []WinnerItem `json:"list"`
 	}
+	AdminWinnerItem {
+		ParticipantId uint64 `json:"participantId,string"`
+		Uid           string `json:"uid"`
+		Name          string `json:"name"`
+		Department    string `json:"department"`
+		PrizeName     string `json:"prizeName"`
+		Kind          string `json:"kind"`
+		PrizeToken    string `json:"prizeToken"`
+		Source        string `json:"source"`
+		RedeemStatus  string `json:"redeemStatus"`
+		WonAt         int64  `json:"wonAt"`
+	}
+	AdminWinnersResp {
+		List []AdminWinnerItem `json:"list"`
+	}
 	FeedResp {
 		List []WinnerItem `json:"list"`
+	}
+	UploadResp {
+		Url string `json:"url"`
 	}
 )
 
@@ -174,15 +282,14 @@ service luckygo-api {
 	get /play/:publicId/winners (PublicIdReq) returns (WinnersResp)
 }
 
+// 上传文件公开读取：GET /api/static/uploads/:filename（手写路由，见 routes.go）
+
 @server (
 	jwt:    Auth
 	prefix: /api/v1
 	group:  user
 )
 service luckygo-api {
-	@handler Draw
-	post /draw (DrawReq) returns (DrawResp)
-
 	@handler Enroll
 	post /enroll (EnrollReq) returns (OkResp)
 
@@ -208,6 +315,12 @@ service luckygo-api {
 	@handler GetActivity
 	get /activities/:id (IdPathReq) returns (ActivityDetail)
 
+	@handler UpdateActivity
+	put /activities/:id (UpdateActivityReq) returns (ActivityBrief)
+
+	@handler UpdateUiConfig
+	put /activities/:id/ui-config (UpdateUiConfigReq) returns (OkResp)
+
 	@handler PublishActivity
 	post /activities/:id/publish (IdPathReq) returns (OkResp)
 
@@ -223,6 +336,24 @@ service luckygo-api {
 	@handler ForceDraw
 	post /activities/:id/draw (IdPathReq) returns (OkResp)
 
+	@handler ListParticipants
+	get /activities/:id/participants (IdPathReq) returns (ParticipantsResp)
+
+	@handler ImportParticipants
+	post /activities/:id/participants/import (ImportParticipantsReq) returns (ImportResp)
+
+	@handler DeleteParticipant
+	delete /activities/:id/participants/:pid (ParticipantPathReq) returns (OkResp)
+
+	@handler LiveDraw
+	post /activities/:id/live-draw (LiveDrawReq) returns (LiveDrawResp)
+
+	@handler LiveDrawUndo
+	post /activities/:id/live-draw/undo (LiveUndoReq) returns (OkResp)
+
+	@handler OfflineRedeem
+	post /activities/:id/offline-redeem (OfflineRedeemReq) returns (OkResp)
+
 	@handler Redeem
 	post /redeem (RedeemReq) returns (OkResp)
 
@@ -230,6 +361,7 @@ service luckygo-api {
 	post /blacklist (BlacklistReq) returns (OkResp)
 
 	@handler ActivityWinners
-	get /activities/:id/winners (IdPathReq) returns (WinnersResp)
-}
+	get /activities/:id/winners (IdPathReq) returns (AdminWinnersResp)
 
+	// multipart 上传（字段名 file，仅图片 ≤5MB）：POST /api/v1/admin/upload，手写 handler 见 uploadHandler.go
+}

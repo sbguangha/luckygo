@@ -34,6 +34,16 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: admin.GetActivityHandler(serverCtx),
 			},
 			{
+				Method:  http.MethodPut,
+				Path:    "/activities/:id",
+				Handler: admin.UpdateActivityHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPut,
+				Path:    "/activities/:id/ui-config",
+				Handler: admin.UpdateUiConfigHandler(serverCtx),
+			},
+			{
 				Method:  http.MethodPost,
 				Path:    "/activities/:id/cancel",
 				Handler: admin.CancelActivityHandler(serverCtx),
@@ -64,6 +74,36 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: admin.ActivityWinnersHandler(serverCtx),
 			},
 			{
+				Method:  http.MethodGet,
+				Path:    "/activities/:id/participants",
+				Handler: admin.ListParticipantsHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/activities/:id/participants/import",
+				Handler: admin.ImportParticipantsHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodDelete,
+				Path:    "/activities/:id/participants/:pid",
+				Handler: admin.DeleteParticipantHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/activities/:id/live-draw",
+				Handler: admin.LiveDrawHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/activities/:id/live-draw/undo",
+				Handler: admin.LiveDrawUndoHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/activities/:id/offline-redeem",
+				Handler: admin.OfflineRedeemHandler(serverCtx),
+			},
+			{
 				Method:  http.MethodPost,
 				Path:    "/blacklist",
 				Handler: admin.BlacklistAddHandler(serverCtx),
@@ -72,6 +112,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Method:  http.MethodPost,
 				Path:    "/redeem",
 				Handler: admin.RedeemHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/upload",
+				Handler: admin.UploadHandler(serverCtx),
 			},
 		},
 		rest.WithJwt(serverCtx.Config.Auth.AccessSecret),
@@ -124,11 +169,6 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 		[]rest.Route{
 			{
 				Method:  http.MethodPost,
-				Path:    "/draw",
-				Handler: user.DrawHandler(serverCtx),
-			},
-			{
-				Method:  http.MethodPost,
 				Path:    "/enroll",
 				Handler: user.EnrollHandler(serverCtx),
 			},
@@ -146,4 +186,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 		rest.WithJwt(serverCtx.Config.Auth.AccessSecret),
 		rest.WithPrefix("/api/v1"),
 	)
+
+	// 上传文件公开读取（图片：奖品图/头像/背景图）
+	server.AddRoute(rest.Route{
+		Method:  http.MethodGet,
+		Path:    "/api/static/uploads/:filename",
+		Handler: admin.StaticUploadHandler(serverCtx),
+	})
 }
