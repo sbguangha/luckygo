@@ -71,4 +71,7 @@ var (
 	ErrEnrolled         = Conflict("已经报名")
 	ErrEnrollFull       = Conflict("报名人数已满")
 	ErrNotDrawn         = NotFound("尚未开奖")
+	ErrInsufficient     = Bad("可抽人数不足")
+	ErrUndone           = Conflict("该批次已取消")
+	ErrStalePool        = Conflict("名单池待重建")
 )

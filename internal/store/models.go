@@ -25,12 +25,14 @@ type Activity struct {
 	PublicID         string     `db:"public_id"`
 	Title            string     `db:"title"`
 	Mode             string     `db:"mode"`
+	RosterSource     string     `db:"roster_source"`
 	Status           string     `db:"status"`
 	Timezone         string     `db:"timezone"`
 	StartAt          time.Time  `db:"start_at"`
 	EndAt            time.Time  `db:"end_at"`
 	MaxDrawsPerUser  int        `db:"max_draws_per_user"`
 	MaxEnrollments   int        `db:"max_enrollments"`
+	UiConfig         string     `db:"ui_config"`
 	Version          int        `db:"version"`
 	PublishedAt      *time.Time `db:"published_at"`
 	DrawnAt          *time.Time `db:"drawn_at"`
@@ -38,15 +40,17 @@ type Activity struct {
 }
 
 type Prize struct {
-	ID         uint64 `db:"id"`
-	TenantID   uint64 `db:"tenant_id"`
-	ActivityID uint64 `db:"activity_id"`
-	Name       string `db:"name"`
-	Kind       string `db:"kind"`
-	Stock      int    `db:"stock"`
-	Weight     int    `db:"weight"`
-	ImageURL   string `db:"image_url"`
-	SortOrder  int    `db:"sort_order"`
+	ID            uint64 `db:"id"`
+	TenantID      uint64 `db:"tenant_id"`
+	ActivityID    uint64 `db:"activity_id"`
+	Name          string `db:"name"`
+	Kind          string `db:"kind"`
+	Stock         int    `db:"stock"`
+	PerRoundCount int    `db:"per_round_count"`
+	Weight        int    `db:"weight"`
+	ImageURL      string `db:"image_url"`
+	IsAll         bool   `db:"is_all"`
+	SortOrder     int    `db:"sort_order"`
 }
 
 type DrawRecord struct {
@@ -54,12 +58,27 @@ type DrawRecord struct {
 	TenantID       uint64    `db:"tenant_id"`
 	ActivityID     uint64    `db:"activity_id"`
 	UserID         uint64    `db:"user_id"`
+	ParticipantID  uint64    `db:"participant_id"`
 	PrizeID        uint64    `db:"prize_id"`
 	PrizeToken     string    `db:"prize_token"`
 	IdempotencyKey string    `db:"idempotency_key"`
 	Kind           string    `db:"kind"`
 	Status         string    `db:"status"`
 	CreatedAt      time.Time `db:"created_at"`
+}
+
+type Participant struct {
+	ID         uint64    `db:"id"`
+	TenantID   uint64    `db:"tenant_id"`
+	ActivityID uint64    `db:"activity_id"`
+	Uid        string    `db:"uid"`
+	Name       string    `db:"name"`
+	Department string    `db:"department"`
+	Identity   string    `db:"identity"`
+	AvatarURL  string    `db:"avatar_url"`
+	Source     string    `db:"source"`
+	UserID     uint64    `db:"user_id"`
+	CreatedAt  time.Time `db:"created_at"`
 }
 
 type Redemption struct {

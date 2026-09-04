@@ -4,16 +4,18 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
-	"luckygo/internal/types"
 	"luckygo/internal/ctxdata"
 	"luckygo/internal/engine"
 	"luckygo/internal/store"
 	"luckygo/internal/tokenkit"
+	"luckygo/internal/types"
 	"luckygo/internal/xerr"
 
 	"github.com/go-sql-driver/mysql"
@@ -23,9 +25,9 @@ import (
 )
 
 type Conf struct {
-	JWTSecret    string
-	JWTExpire    int64
-	PublicBase   string
+	JWTSecret string
+	JWTExpire int64
+	PublicBase string
 }
 
 type App struct {
@@ -41,6 +43,8 @@ func New(c Conf, dsn string, r *redis.Redis) *App {
 		Draw: engine.RedisDraw{R: r},
 	}
 }
+
+// ---------- 认证 ----------
 
 func (a *App) RegisterTenant(ctx context.Context, req *types.RegisterTenantReq) (*types.LoginResp, error) {
 	if err := validateAccount(req.Account, req.Password, req.TenantName); err != nil {
@@ -133,22 +137,57 @@ func (a *App) loginResp(uid, tid uint64, role, account, nick, tenant string) (*t
 	return &types.LoginResp{Token: tok, Role: role, Nickname: nick, Tenant: tenant}, nil
 }
 
+// ---------- 活动 CRUD ----------
+
+func validMode(mode string) bool {
+	return mode == "live" || mode == "scheduled"
+}
+
+func validRosterSource(s string) bool {
+	return s == "import" || s == "register" || s == "both"
+}
+
+func (a *App) checkActivityInput(title, mode, rosterSource string, startAt, endAt int64, prizes []types.PrizeInput) (string, error) {
+	if strings.TrimSpace(title) == "" || !validMode(mode) {
+		return "", xerr.ErrInvalidParam
+	}
+	if rosterSource == "" {
+		rosterSource = "both"
+	}
+	if !validRosterSource(rosterSource) {
+		return "", xerr.Bad("名单来源不合法")
+	}
+	if endAt <= startAt {
+		return "", xerr.Bad("结束时间必须晚于开始时间")
+	}
+	specs := prizeSpecsFromInput(prizes)
+	if err := engine.ValidatePrizes(specs, mode); err != nil {
+		return "", err
+	}
+	return rosterSource, nil
+}
+
+func storePrizesFromInput(in []types.PrizeInput) []store.Prize {
+	prizes := make([]store.Prize, 0, len(in))
+	for _, p := range in {
+		perRound := p.PerRound
+		if perRound <= 0 {
+			perRound = 1
+		}
+		prizes = append(prizes, store.Prize{
+			Name: p.Name, Kind: p.Kind, Stock: p.Stock, PerRoundCount: perRound, ImageURL: p.ImageUrl, IsAll: p.IsAll,
+		})
+	}
+	return prizes
+}
+
 func (a *App) CreateActivity(ctx context.Context, req *types.CreateActivityReq) (*types.ActivityBrief, error) {
 	id, err := ctxdata.MustAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if req.Title == "" || (req.Mode != "instant" && req.Mode != "scheduled") {
-		return nil, xerr.ErrInvalidParam
-	}
-	if req.MaxDrawsPerUser < 1 || req.MaxDrawsPerUser > 100 {
-		return nil, xerr.Bad("每人次数须在 1-100")
-	}
-	if req.EndAt <= req.StartAt {
-		return nil, xerr.Bad("结束时间必须晚于开始时间")
-	}
-	specs := prizeSpecsFromInput(0, req.Prizes)
-	if err := engine.ValidatePrizes(specs, req.Mode); err != nil {
+	rosterSource, err := a.checkActivityInput(req.Title, req.Mode, req.RosterSource, req.StartAt, req.EndAt, req.Prizes)
+	if err != nil {
 		return nil, err
 	}
 	tz := req.Timezone
@@ -162,29 +201,91 @@ func (a *App) CreateActivity(ctx context.Context, req *types.CreateActivityReq) 
 	if err != nil {
 		return nil, logInternal(ctx, err)
 	}
-	prizes := make([]store.Prize, 0, len(req.Prizes))
-	for _, p := range req.Prizes {
-		prizes = append(prizes, store.Prize{
-			Name: p.Name, Kind: p.Kind, Stock: p.Stock, Weight: p.Weight, ImageURL: p.ImageUrl,
-		})
-	}
 	aid, err := a.DB.CreateActivityTx(ctx, store.Activity{
-		TenantID:        id.TenantID,
-		PublicID:        pub,
-		Title:           req.Title,
-		Mode:            req.Mode,
-		Status:          "draft",
-		Timezone:        tz,
-		StartAt:         time.Unix(req.StartAt, 0).UTC(),
-		EndAt:           time.Unix(req.EndAt, 0).UTC(),
-		MaxDrawsPerUser: req.MaxDrawsPerUser,
-		MaxEnrollments:  req.MaxEnrollments,
-	}, prizes)
+		TenantID:       id.TenantID,
+		PublicID:       pub,
+		Title:          req.Title,
+		Mode:           req.Mode,
+		RosterSource:   rosterSource,
+		Status:         "draft",
+		Timezone:       tz,
+		StartAt:        time.Unix(req.StartAt, 0).UTC(),
+		EndAt:          time.Unix(req.EndAt, 0).UTC(),
+		MaxEnrollments: req.MaxEnrollments,
+	}, storePrizesFromInput(req.Prizes))
 	if err != nil {
 		return nil, logInternal(ctx, err)
 	}
 	a.DB.Audit(ctx, id.TenantID, id.UserID, "create_activity", "activity", strconv.FormatUint(aid, 10), req.Title)
 	return a.brief(ctx, id.TenantID, aid)
+}
+
+// UpdateActivity 整体更新草稿活动（含奖项替换）；发布后冻结。
+func (a *App) UpdateActivity(ctx context.Context, req *types.UpdateActivityReq) (*types.ActivityBrief, error) {
+	id, err := ctxdata.MustAdmin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rosterSource, err := a.checkActivityInput(req.Title, req.Mode, req.RosterSource, req.StartAt, req.EndAt, req.Prizes)
+	if err != nil {
+		return nil, err
+	}
+	tz := req.Timezone
+	if tz == "" {
+		tz = "Asia/Shanghai"
+	}
+	if _, err := time.LoadLocation(tz); err != nil {
+		return nil, xerr.Bad("时区不合法")
+	}
+	act, err := a.mustActivity(ctx, id.TenantID, req.Id)
+	if err != nil {
+		return nil, err
+	}
+	if act.Status != "draft" {
+		return nil, xerr.ErrNotDraft
+	}
+	err = a.DB.UpdateActivityTx(ctx, store.Activity{
+		ID:             act.ID,
+		TenantID:       id.TenantID,
+		Title:          req.Title,
+		Mode:           req.Mode,
+		RosterSource:   rosterSource,
+		Timezone:       tz,
+		StartAt:        time.Unix(req.StartAt, 0).UTC(),
+		EndAt:          time.Unix(req.EndAt, 0).UTC(),
+		MaxEnrollments: req.MaxEnrollments,
+	}, storePrizesFromInput(req.Prizes))
+	if err != nil {
+		if strings.Contains(err.Error(), "cas_failed") {
+			return nil, xerr.ErrNotDraft
+		}
+		return nil, logInternal(ctx, err)
+	}
+	a.DB.Audit(ctx, id.TenantID, id.UserID, "update_activity", "activity", strconv.FormatUint(act.ID, 10), req.Title)
+	return a.brief(ctx, id.TenantID, act.ID)
+}
+
+// UpdateUiConfig 装修配置任何状态可改（不影响抽奖公正性）。
+func (a *App) UpdateUiConfig(ctx context.Context, req *types.UpdateUiConfigReq) error {
+	id, err := ctxdata.MustAdmin(ctx)
+	if err != nil {
+		return err
+	}
+	if _, err := a.mustActivity(ctx, id.TenantID, req.Id); err != nil {
+		return err
+	}
+	if req.Config.RowCount < 0 || req.Config.RowCount > 100 {
+		return xerr.Bad("列数须在 1-100")
+	}
+	b, err := json.Marshal(req.Config)
+	if err != nil || len(b) > 8192 {
+		return xerr.ErrInvalidParam
+	}
+	if err := a.DB.UpdateUiConfig(ctx, id.TenantID, req.Id, string(b)); err != nil {
+		return logInternal(ctx, err)
+	}
+	a.DB.Audit(ctx, id.TenantID, id.UserID, "ui_config", "activity", strconv.FormatUint(req.Id, 10), nil)
+	return nil
 }
 
 func (a *App) ListActivities(ctx context.Context, status string) (*types.ListActivityResp, error) {
@@ -239,35 +340,18 @@ func (a *App) Publish(ctx context.Context, aid uint64) error {
 	if err != nil {
 		return logInternal(ctx, err)
 	}
-	specs := prizeSpecs(prizes)
+	if err := engine.ValidatePrizes(prizeSpecs(prizes), act.Mode); err != nil {
+		return err
+	}
 	now := time.Now().UTC().Unix()
 	status := "published"
 	if now >= act.StartAt.Unix() && now < act.EndAt.Unix() {
 		status = "running"
 	}
-	if act.Mode == "instant" {
-		if err := engine.ValidatePrizes(specs, "instant"); err != nil {
-			return err
-		}
-		items, err := engine.BuildBucket(specs)
-		if err != nil {
-			return err
-		}
-		remain := map[string]int{}
-		for _, p := range prizes {
-			remain[strconv.FormatUint(p.ID, 10)] = p.Stock
-		}
-		if err := a.Draw.LoadBucket(ctx, act.ID, engine.Meta{
-			Status: status, StartAt: act.StartAt.Unix(), EndAt: act.EndAt.Unix(), MaxDraws: act.MaxDrawsPerUser,
-		}, items, remain); err != nil {
-			return logInternal(ctx, err)
-		}
-	} else {
-		if err := a.Draw.LoadBucket(ctx, act.ID, engine.Meta{
-			Status: status, StartAt: act.StartAt.Unix(), EndAt: act.EndAt.Unix(), MaxDraws: 1,
-		}, nil, nil); err != nil {
-			return logInternal(ctx, err)
-		}
+	if err := a.Draw.LoadMeta(ctx, act.ID, engine.Meta{
+		Status: status, StartAt: act.StartAt.Unix(), EndAt: act.EndAt.Unix(),
+	}); err != nil {
+		return logInternal(ctx, err)
 	}
 	if err := a.DB.CASStatus(ctx, id.TenantID, act.ID, "draft", status, act.Version, "publish"); err != nil {
 		return xerr.ErrBadStatus
@@ -325,104 +409,275 @@ func (a *App) flip(ctx context.Context, aid uint64, from, to, action string) err
 	return nil
 }
 
-func (a *App) DrawOnce(ctx context.Context, req *types.DrawReq) (*types.DrawResp, error) {
-	id, err := ctxdata.MustUser(ctx)
+// ---------- 参与者名单 ----------
+
+func (a *App) ListParticipants(ctx context.Context, aid uint64) (*types.ParticipantsResp, error) {
+	id, err := ctxdata.MustAdmin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := a.mustActivity(ctx, id.TenantID, aid); err != nil {
+		return nil, err
+	}
+	list, err := a.DB.ListParticipants(ctx, aid)
+	if err != nil {
+		return nil, logInternal(ctx, err)
+	}
+	won, err := a.DB.WonParticipantIDs(ctx, aid)
+	if err != nil {
+		return nil, logInternal(ctx, err)
+	}
+	out := make([]types.ParticipantItem, 0, len(list))
+	for _, p := range list {
+		out = append(out, types.ParticipantItem{
+			Id: p.ID, Uid: p.Uid, Name: p.Name, Department: p.Department, Identity: p.Identity,
+			AvatarUrl: p.AvatarURL, Source: p.Source, IsWin: won[p.ID], CreatedAt: p.CreatedAt.Unix(),
+		})
+	}
+	return &types.ParticipantsResp{List: out}, nil
+}
+
+func (a *App) ImportParticipants(ctx context.Context, req *types.ImportParticipantsReq) (*types.ImportResp, error) {
+	id, err := ctxdata.MustAdmin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := a.mustActivity(ctx, id.TenantID, req.Id); err != nil {
+		return nil, err
+	}
+	if len(req.Rows) == 0 || len(req.Rows) > 5000 {
+		return nil, xerr.Bad("导入行数须为 1-5000")
+	}
+	seen := make(map[string]bool, len(req.Rows))
+	failed := 0
+	for _, r := range req.Rows {
+		uid := strings.TrimSpace(r.Uid)
+		name := strings.TrimSpace(r.Name)
+		if uid == "" || name == "" || seen[uid] {
+			failed++
+			continue
+		}
+		seen[uid] = true
+		if err := a.DB.UpsertParticipant(ctx, store.Participant{
+			TenantID: id.TenantID, ActivityID: req.Id, Uid: uid, Name: name,
+			Department: strings.TrimSpace(r.Department), Identity: strings.TrimSpace(r.Identity),
+			AvatarURL: strings.TrimSpace(r.AvatarUrl), Source: "import",
+		}); err != nil {
+			logx.WithContext(ctx).Errorf("import participant uid=%s: %v", uid, err)
+			failed++
+		}
+	}
+	if err := a.Draw.BumpRosterVersion(req.Id); err != nil {
+		logx.WithContext(ctx).Errorf("bump roster version: %v", err)
+	}
+	a.DB.Audit(ctx, id.TenantID, id.UserID, "import_participants", "activity", strconv.FormatUint(req.Id, 10),
+		fmt.Sprintf("total=%d failed=%d", len(req.Rows), failed))
+	return &types.ImportResp{Total: len(req.Rows), Failed: failed}, nil
+}
+
+func (a *App) DeleteParticipant(ctx context.Context, aid, pid uint64) error {
+	id, err := ctxdata.MustAdmin(ctx)
+	if err != nil {
+		return err
+	}
+	if _, err := a.mustActivity(ctx, id.TenantID, aid); err != nil {
+		return err
+	}
+	won, err := a.DB.ParticipantWon(ctx, aid, pid)
+	if err != nil {
+		return logInternal(ctx, err)
+	}
+	if won {
+		return xerr.Bad("该参与者已中奖，不可删除")
+	}
+	if err := a.DB.DeleteParticipant(ctx, id.TenantID, aid, pid); err != nil {
+		if strings.Contains(err.Error(), "not_found") {
+			return xerr.NotFound("参与者不存在")
+		}
+		return logInternal(ctx, err)
+	}
+	if err := a.Draw.BumpRosterVersion(aid); err != nil {
+		logx.WithContext(ctx).Errorf("bump roster version: %v", err)
+	}
+	a.DB.Audit(ctx, id.TenantID, id.UserID, "delete_participant", "participant", strconv.FormatUint(pid, 10), nil)
+	return nil
+}
+
+// ---------- 现场大屏抽取 ----------
+
+// LiveDraw 主持人点「停止」时调用：从奖项待抽池原子弹出 N 人并落库。
+// 人数 = min(奖项单次抽取个数, 奖项剩余名额)。
+func (a *App) LiveDraw(ctx context.Context, req *types.LiveDrawReq) (*types.LiveDrawResp, error) {
+	id, err := ctxdata.MustAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if len(req.IdempotencyKey) < 8 || len(req.IdempotencyKey) > 64 {
 		return nil, xerr.ErrIdempotency
 	}
-	act, err := a.DB.ActivityByPublicID(ctx, req.PublicId)
-	if err != nil {
-		if store.IsNoRows(err) {
-			return nil, xerr.ErrActivityNotFound
-		}
-		return nil, logInternal(ctx, err)
-	}
-	if act.TenantID != id.TenantID {
-		return nil, xerr.ErrTenantMismatch
-	}
-	if act.Mode != "instant" {
-		return nil, xerr.ErrWrongMode
-	}
-	a.maybeFlipStatus(ctx, act)
-	bl, err := a.DB.Blacklisted(ctx, id.TenantID, id.UserID)
-	if err != nil {
-		return nil, logInternal(ctx, err)
-	}
-	if bl {
-		return nil, xerr.ErrBlacklisted
-	}
-	res, err := a.Draw.Draw(act.ID, id.UserID, req.IdempotencyKey)
+	act, err := a.mustActivity(ctx, id.TenantID, req.Id)
 	if err != nil {
 		return nil, err
 	}
-	defer a.Draw.ClearInflight(act.ID, id.UserID)
+	if act.Mode != "live" {
+		return nil, xerr.ErrWrongMode
+	}
+	a.maybeFlipStatus(ctx, act)
+	prizes, err := a.DB.Prizes(ctx, act.ID)
+	if err != nil {
+		return nil, logInternal(ctx, err)
+	}
+	var prize *store.Prize
+	for i := range prizes {
+		if prizes[i].ID == req.PrizeId {
+			prize = &prizes[i]
+			break
+		}
+	}
+	if prize == nil {
+		return nil, xerr.NotFound("奖项不存在")
+	}
+	wonCounts, err := a.DB.CountWinsByPrize(ctx, act.ID)
+	if err != nil {
+		return nil, logInternal(ctx, err)
+	}
+	remaining := prize.Stock - int(wonCounts[prize.ID])
+	if remaining <= 0 {
+		return nil, xerr.Bad("该奖项已抽完")
+	}
+	count := prize.PerRoundCount
+	if count > remaining {
+		count = remaining
+	}
 
-	rec := store.DrawRecord{
-		TenantID: act.TenantID, ActivityID: act.ID, UserID: id.UserID,
-		PrizeID: res.Item.PrizeID, PrizeToken: res.Item.Token,
-		IdempotencyKey: req.IdempotencyKey, Kind: res.Item.Kind, Status: "won",
+	res, err := a.liveDrawWithRetry(ctx, act.ID, prize, count, req.IdempotencyKey)
+	if err != nil {
+		return nil, err
 	}
-	if persistErr := a.persistDraw(ctx, rec); persistErr != nil {
-		logx.WithContext(ctx).Errorf("persist draw token=%s err=%v", rec.PrizeToken, persistErr)
-		_ = a.DB.InsertPersistFailure(ctx, rec, persistErr.Error())
+	if res.Undone {
+		return nil, xerr.ErrUndone
 	}
-	prizes, _ := a.DB.Prizes(ctx, act.ID)
-	name := prizeName(prizes, res.Item.PrizeID)
-	code := ""
-	if !res.Duplicate && res.Item.Kind != "thank_you" {
-		code = a.issueRedeem(ctx, rec)
+	winners, userOf, err := a.liveWinnerViews(ctx, act, res.WinnerIDs)
+	if err != nil {
+		return nil, err
+	}
+	resp := &types.LiveDrawResp{
+		DrawId: res.DrawId, PrizeId: prize.ID, PrizeName: prize.Name, Kind: prize.Kind,
+		Winners: winners, Remain: remaining - len(res.WinnerIDs),
 	}
 	if res.Duplicate {
-		if existing, e := a.DB.DrawByIdemp(ctx, act.ID, id.UserID, req.IdempotencyKey); e == nil && existing != nil {
-			name = prizeName(prizes, existing.PrizeID)
+		return resp, nil
+	}
+
+	// 落库（重试 3 次，失败进补偿表；参与者已出池，与现有"不回池"策略一致）
+	for _, w := range winners {
+		tok, err := engine.RandomToken()
+		if err != nil {
+			return nil, logInternal(ctx, err)
+		}
+		rec := store.DrawRecord{
+			TenantID: act.TenantID, ActivityID: act.ID, UserID: userOf[w.ParticipantId], ParticipantID: w.ParticipantId,
+			PrizeID: prize.ID, PrizeToken: tok,
+			IdempotencyKey: res.DrawId + ":" + strconv.FormatUint(w.ParticipantId, 10),
+			Kind:           prize.Kind, Status: "won",
+		}
+		if persistErr := a.persistDraw(ctx, rec); persistErr != nil {
+			logx.WithContext(ctx).Errorf("persist live draw token=%s err=%v", rec.PrizeToken, persistErr)
+			_ = a.DB.InsertPersistFailure(ctx, rec, persistErr.Error())
+		}
+		// 注册来源中奖者签发兑换码（虚拟/实物奖）；导入名单无账号，现场线下核销
+		if userOf[w.ParticipantId] > 0 {
+			_ = a.issueRedeem(ctx, rec)
 		}
 	}
-	return &types.DrawResp{
-		Result:      resultLabel(res.Item.Kind),
-		PrizeId:     strconv.FormatUint(res.Item.PrizeID, 10),
-		PrizeName:   name,
-		Kind:        res.Item.Kind,
-		PrizeToken:  res.Item.Token,
-		RedeemCode:  code,
-		RemainDraws: res.RemainDraws,
-	}, nil
+	a.DB.Audit(ctx, id.TenantID, id.UserID, "live_draw", "activity", strconv.FormatUint(act.ID, 10),
+		fmt.Sprintf("prize=%s count=%d drawId=%s", prize.Name, len(winners), res.DrawId))
+	return resp, nil
 }
 
-func (a *App) persistDraw(ctx context.Context, rec store.DrawRecord) error {
-	var last error
-	for i := 0; i < 3; i++ {
-		err := a.DB.InsertDraw(ctx, rec)
-		if err == nil || isDup(err) {
-			return nil
-		}
-		last = err
-		time.Sleep(time.Duration(i+1) * 40 * time.Millisecond)
-	}
-	return last
-}
-
-func (a *App) issueRedeem(ctx context.Context, rec store.DrawRecord) string {
-	code, err := engine.RandomRedeemCode()
+// liveDrawWithRetry 名单池版本过期时从 MySQL 重建一次再重试。
+func (a *App) liveDrawWithRetry(ctx context.Context, activityID uint64, prize *store.Prize, count int, idemKey string) (engine.LiveDrawResult, error) {
+	ver, err := a.Draw.RosterVersion(activityID)
 	if err != nil {
-		return ""
+		return engine.LiveDrawResult{}, logInternal(ctx, err)
 	}
-	sum := sha256.Sum256([]byte(code))
-	r := store.Redemption{
-		TenantID: rec.TenantID, ActivityID: rec.ActivityID, UserID: rec.UserID,
-		PrizeID: rec.PrizeID, DrawRef: rec.PrizeToken,
-		CodeHash: hex.EncodeToString(sum[:]), CodePrefix: code[:8], Status: "unused",
-	}
-	if err := a.DB.InsertRedemption(ctx, r); err != nil {
-		if !isDup(err) {
-			logx.WithContext(ctx).Errorf("redeem issue: %v", err)
+	res, err := a.Draw.LiveDraw(activityID, prize.ID, idemKey, count, ver)
+	if err != xerr.ErrStalePool {
+		if err == xerr.ErrInsufficient && res.PoolSize > 0 {
+			return res, xerr.Bad(fmt.Sprintf("可抽人数不足：剩 %d 人，本次需 %d 人", res.PoolSize, count))
 		}
-		return ""
+		return res, err
 	}
-	return code
+	ids, err := a.DB.EligibleParticipantIDs(ctx, activityID, prize.ID, prize.IsAll)
+	if err != nil {
+		return res, logInternal(ctx, err)
+	}
+	if err := a.Draw.LiveRebuildPool(activityID, prize.ID, ver, ids); err != nil {
+		return res, logInternal(ctx, err)
+	}
+	res, err = a.Draw.LiveDraw(activityID, prize.ID, idemKey, count, ver)
+	if err == xerr.ErrInsufficient {
+		return res, xerr.Bad(fmt.Sprintf("可抽人数不足：剩 %d 人，本次需 %d 人", res.PoolSize, count))
+	}
+	return res, err
 }
+
+// liveWinnerViews 按参与者 id 加载展示信息，并返回 participantId -> userId 映射（用于兑换码签发）。
+func (a *App) liveWinnerViews(ctx context.Context, act *store.Activity, ids []uint64) ([]types.LiveWinner, map[uint64]uint64, error) {
+	parts, err := a.DB.ParticipantsByIDs(ctx, act.ID, ids)
+	if err != nil {
+		return nil, nil, logInternal(ctx, err)
+	}
+	if len(parts) != len(ids) {
+		return nil, nil, logInternal(ctx, fmt.Errorf("participants mismatch: got %d want %d", len(parts), len(ids)))
+	}
+	byID := make(map[uint64]store.Participant, len(parts))
+	userOf := make(map[uint64]uint64, len(parts))
+	for _, p := range parts {
+		byID[p.ID] = p
+		userOf[p.ID] = p.UserID
+	}
+	out := make([]types.LiveWinner, 0, len(ids))
+	for _, id := range ids {
+		p := byID[id]
+		out = append(out, types.LiveWinner{
+			ParticipantId: p.ID, Uid: p.Uid, Name: p.Name, Department: p.Department,
+			Identity: p.Identity, AvatarUrl: p.AvatarURL,
+		})
+	}
+	return out, userOf, nil
+}
+
+// UndoLiveDraw 主持人点「取消」：该批中奖记录翻为 undone，名单池随版本号重建自动回池。幂等。
+func (a *App) UndoLiveDraw(ctx context.Context, req *types.LiveUndoReq) error {
+	id, err := ctxdata.MustAdmin(ctx)
+	if err != nil {
+		return err
+	}
+	act, err := a.mustActivity(ctx, id.TenantID, req.Id)
+	if err != nil {
+		return err
+	}
+	if act.Mode != "live" {
+		return xerr.ErrWrongMode
+	}
+	if req.DrawId == "" {
+		return xerr.ErrIdempotency
+	}
+	if err := a.Draw.LiveUndo(act.ID, req.DrawId); err != nil && err != xerr.ErrUndone {
+		return err
+	}
+	if _, err := a.DB.MarkLiveUndone(ctx, act.ID, req.DrawId); err != nil {
+		return logInternal(ctx, err)
+	}
+	if err := a.Draw.BumpRosterVersion(act.ID); err != nil {
+		logx.WithContext(ctx).Errorf("bump roster version: %v", err)
+	}
+	a.DB.Audit(ctx, id.TenantID, id.UserID, "live_undo", "activity", strconv.FormatUint(act.ID, 10), req.DrawId)
+	return nil
+}
+
+// ---------- 报名（C 端用户上球） ----------
 
 func (a *App) Enroll(ctx context.Context, publicID string) error {
 	id, err := ctxdata.MustUser(ctx)
@@ -439,7 +694,13 @@ func (a *App) Enroll(ctx context.Context, publicID string) error {
 	if act.TenantID != id.TenantID {
 		return xerr.ErrTenantMismatch
 	}
-	if act.Mode != "scheduled" {
+	switch act.Mode {
+	case "scheduled":
+	case "live":
+		if act.RosterSource == "import" {
+			return xerr.Bad("该活动为名单导入制，无需报名")
+		}
+	default:
 		return xerr.ErrWrongMode
 	}
 	a.maybeFlipStatus(ctx, act)
@@ -472,6 +733,20 @@ func (a *App) Enroll(ctx context.Context, publicID string) error {
 			return xerr.ErrEnrolled
 		}
 		return logInternal(ctx, err)
+	}
+	// 报名即上球：写入统一名单
+	u, err := a.DB.UserByID(ctx, id.TenantID, id.UserID)
+	if err != nil {
+		return logInternal(ctx, err)
+	}
+	if err := a.DB.UpsertParticipant(ctx, store.Participant{
+		TenantID: id.TenantID, ActivityID: act.ID, Uid: fmt.Sprintf("U%d", id.UserID),
+		Name: u.Nickname, Source: "register", UserID: id.UserID,
+	}); err != nil {
+		return logInternal(ctx, err)
+	}
+	if err := a.Draw.BumpRosterVersion(act.ID); err != nil {
+		logx.WithContext(ctx).Errorf("bump roster version: %v", err)
 	}
 	return nil
 }
@@ -513,6 +788,8 @@ func (a *App) FillAddress(ctx context.Context, req *types.FillAddressReq) error 
 	return nil
 }
 
+// ---------- 核销 ----------
+
 func (a *App) Redeem(ctx context.Context, code string) error {
 	id, err := ctxdata.MustAdmin(ctx)
 	if err != nil {
@@ -527,6 +804,31 @@ func (a *App) Redeem(ctx context.Context, code string) error {
 		return xerr.ErrRedeemed
 	}
 	a.DB.Audit(ctx, id.TenantID, id.UserID, "redeem", "code", code[:8], nil)
+	return nil
+}
+
+// OfflineRedeem 导入名单中奖者线下发奖：直接补一条已核销记录。
+func (a *App) OfflineRedeem(ctx context.Context, aid uint64, prizeToken string) error {
+	id, err := ctxdata.MustAdmin(ctx)
+	if err != nil {
+		return err
+	}
+	if _, err := a.mustActivity(ctx, id.TenantID, aid); err != nil {
+		return err
+	}
+	if strings.TrimSpace(prizeToken) == "" {
+		return xerr.ErrInvalidParam
+	}
+	if err := a.DB.MarkOfflineUsed(ctx, id.TenantID, prizeToken, id.UserID); err != nil {
+		if isDup(err) {
+			return xerr.ErrRedeemed
+		}
+		if strings.Contains(err.Error(), "not_found") {
+			return xerr.NotFound("中奖记录不存在")
+		}
+		return logInternal(ctx, err)
+	}
+	a.DB.Audit(ctx, id.TenantID, id.UserID, "offline_redeem", "activity", strconv.FormatUint(aid, 10), prizeToken[:8])
 	return nil
 }
 
@@ -546,12 +848,17 @@ func (a *App) Blacklist(ctx context.Context, account, reason string) error {
 	return nil
 }
 
+// ---------- 播报与名单 ----------
+
 func (a *App) Feed(ctx context.Context, publicID string) (*types.FeedResp, error) {
 	act, err := a.DB.ActivityByPublicID(ctx, publicID)
 	if err != nil {
 		return nil, xerr.ErrActivityNotFound
 	}
-	list, err := a.DB.InstantWinners(ctx, act.ID, 40)
+	if act.Mode == "scheduled" && act.Status != "drawn" {
+		return &types.FeedResp{List: []types.WinnerItem{}}, nil
+	}
+	list, err := a.winnersByMode(ctx, act, 40)
 	if err != nil {
 		return nil, logInternal(ctx, err)
 	}
@@ -563,24 +870,25 @@ func (a *App) WinnersPublic(ctx context.Context, publicID string) (*types.Winner
 	if err != nil {
 		return nil, xerr.ErrActivityNotFound
 	}
-	if act.Mode != "scheduled" {
-		feed, err := a.Feed(ctx, publicID)
-		if err != nil {
-			return nil, err
-		}
-		return &types.WinnersResp{List: feed.List}, nil
-	}
-	if act.Status != "drawn" {
+	if act.Mode == "scheduled" && act.Status != "drawn" {
 		return nil, xerr.ErrNotDrawn
 	}
-	list, err := a.DB.ScheduledWinners(ctx, act.ID)
+	list, err := a.winnersByMode(ctx, act, 200)
 	if err != nil {
 		return nil, logInternal(ctx, err)
 	}
 	return &types.WinnersResp{List: mapWinners(list)}, nil
 }
 
-func (a *App) WinnersAdmin(ctx context.Context, aid uint64) (*types.WinnersResp, error) {
+func (a *App) winnersByMode(ctx context.Context, act *store.Activity, limit int) ([]store.WinnerRow, error) {
+	if act.Mode == "scheduled" {
+		return a.DB.ScheduledWinners(ctx, act.ID)
+	}
+	return a.DB.LiveWinners(ctx, act.ID, limit)
+}
+
+// WinnersAdmin 管理端中奖名单（含工号/部门/核销状态，支持导出与线下核销）。
+func (a *App) WinnersAdmin(ctx context.Context, aid uint64) (*types.AdminWinnersResp, error) {
 	id, err := ctxdata.MustAdmin(ctx)
 	if err != nil {
 		return nil, err
@@ -589,19 +897,27 @@ func (a *App) WinnersAdmin(ctx context.Context, aid uint64) (*types.WinnersResp,
 	if err != nil {
 		return nil, err
 	}
+	var list []store.AdminWinnerRow
 	if act.Mode == "scheduled" {
-		list, err := a.DB.ScheduledWinners(ctx, act.ID)
-		if err != nil {
-			return nil, logInternal(ctx, err)
-		}
-		return &types.WinnersResp{List: mapWinners(list)}, nil
+		list, err = a.DB.AdminScheduledWinners(ctx, act.ID)
+	} else {
+		list, err = a.DB.AdminLiveWinners(ctx, act.ID)
 	}
-	list, err := a.DB.InstantWinners(ctx, act.ID, 200)
 	if err != nil {
 		return nil, logInternal(ctx, err)
 	}
-	return &types.WinnersResp{List: mapWinners(list)}, nil
+	out := make([]types.AdminWinnerItem, 0, len(list))
+	for _, w := range list {
+		out = append(out, types.AdminWinnerItem{
+			ParticipantId: w.ParticipantID, Uid: w.Uid, Name: w.Name, Department: w.Department,
+			PrizeName: w.PrizeName, Kind: w.Kind, PrizeToken: w.PrizeToken, Source: w.Source,
+			RedeemStatus: w.RedeemStatus, WonAt: w.WonAt.Unix(),
+		})
+	}
+	return &types.AdminWinnersResp{List: out}, nil
 }
+
+// ---------- 定时开奖 ----------
 
 func (a *App) ForceDraw(ctx context.Context, aid uint64) error {
 	id, err := ctxdata.MustAdmin(ctx)
@@ -650,7 +966,8 @@ func (a *App) RunScheduledDraw(ctx context.Context, activityID uint64) error {
 			act = fresh
 		}
 	}
-	users, err := a.DB.EnrollUserIDs(ctx, act.ID)
+	// 统一名单源：import 导入 + register 报名都在 participants 表
+	participantIDs, err := a.DB.AllParticipantIDs(ctx, act.ID)
 	if err != nil {
 		return err
 	}
@@ -662,21 +979,29 @@ func (a *App) RunScheduledDraw(ctx context.Context, activityID uint64) error {
 	if err != nil {
 		return err
 	}
-	wins, err := engine.AssignScheduled(users, prizeSpecs(prizes), seed)
+	wins, err := engine.AssignScheduled(participantIDs, prizeSpecs(prizes), seed)
 	if err != nil {
 		return err
 	}
+	parts, err := a.DB.ParticipantsByIDs(ctx, act.ID, participantIDs)
+	if err != nil {
+		return err
+	}
+	userOf := make(map[uint64]uint64, len(parts))
+	for _, p := range parts {
+		userOf[p.ID] = p.UserID
+	}
 	rows := make([]struct {
-		UserID, PrizeID uint64
-		Token, Kind     string
-		Rank            int
+		UserID, ParticipantID, PrizeID uint64
+		Token, Kind                    string
+		Rank                           int
 	}, 0, len(wins))
 	for _, w := range wins {
 		rows = append(rows, struct {
-			UserID, PrizeID uint64
-			Token, Kind     string
-			Rank            int
-		}{w.UserID, w.PrizeID, w.Token, w.Kind, w.Rank})
+			UserID, ParticipantID, PrizeID uint64
+			Token, Kind                    string
+			Rank                           int
+		}{userOf[w.ParticipantID], w.ParticipantID, w.PrizeID, w.Token, w.Kind, w.Rank})
 	}
 	if err := a.DB.InsertWinnersTx(ctx, act.TenantID, act.ID, act.Version, seed, rows); err != nil {
 		if strings.Contains(err.Error(), "cas_failed") {
@@ -685,18 +1010,19 @@ func (a *App) RunScheduledDraw(ctx context.Context, activityID uint64) error {
 		return err
 	}
 	_ = a.Draw.SetStatus(act.ID, "drawn")
-	_ = a.DB.InsertDrawAudit(ctx, act.TenantID, act.ID, seed, users, wins)
+	_ = a.DB.InsertDrawAudit(ctx, act.TenantID, act.ID, seed, participantIDs, wins)
 	for _, w := range wins {
-		if w.Kind == "thank_you" {
-			continue
+		if uid := userOf[w.ParticipantID]; uid > 0 {
+			_ = a.issueRedeem(ctx, store.DrawRecord{
+				TenantID: act.TenantID, ActivityID: act.ID, UserID: uid, ParticipantID: w.ParticipantID,
+				PrizeID: w.PrizeID, PrizeToken: w.Token, Kind: w.Kind,
+			})
 		}
-		_ = a.issueRedeem(ctx, store.DrawRecord{
-			TenantID: act.TenantID, ActivityID: act.ID, UserID: w.UserID,
-			PrizeID: w.PrizeID, PrizeToken: w.Token, Kind: w.Kind,
-		})
 	}
 	return nil
 }
+
+// ---------- 后台任务 ----------
 
 func (a *App) HandleDueJobs(ctx context.Context) {
 	jobs, err := a.Draw.DueJobs(time.Now().Unix(), 50)
@@ -745,6 +1071,8 @@ func (a *App) HandleDueJobs(ctx context.Context) {
 	}
 }
 
+// ---------- 内部工具 ----------
+
 func (a *App) maybeFlipStatus(ctx context.Context, act *store.Activity) {
 	now := time.Now().UTC()
 	if act.Status == "published" && !now.Before(act.StartAt) && now.Before(act.EndAt) {
@@ -788,8 +1116,8 @@ func (a *App) toBrief(act store.Activity) types.ActivityBrief {
 		name = t.Name
 	}
 	return types.ActivityBrief{
-		Id: act.ID, PublicId: act.PublicID, Title: act.Title, Mode: act.Mode, Status: act.Status,
-		StartAt: act.StartAt.Unix(), EndAt: act.EndAt.Unix(), MaxDrawsPerUser: act.MaxDrawsPerUser,
+		Id: act.ID, PublicId: act.PublicID, Title: act.Title, Mode: act.Mode, RosterSource: act.RosterSource,
+		Status: act.Status, StartAt: act.StartAt.Unix(), EndAt: act.EndAt.Unix(),
 		PlayUrl: strings.TrimRight(a.Conf.PublicBase, "/") + "/p/" + act.PublicID, TenantName: name,
 	}
 }
@@ -803,70 +1131,92 @@ func (a *App) detail(ctx context.Context, tenantID, id uint64, admin bool) (*typ
 	if err != nil {
 		return nil, logInternal(ctx, err)
 	}
-	remain, _ := a.Draw.Remain(act.ID)
+	// 剩余名额：live 取中奖记录，scheduled 开奖后取名单
+	wonByPrize := map[uint64]int64{}
+	if act.Mode == "live" {
+		wonByPrize, _ = a.DB.CountWinsByPrize(ctx, act.ID)
+	} else if act.Status == "drawn" {
+		wonByPrize, _ = a.DB.ScheduledWinCounts(ctx, act.ID)
+	}
 	views := make([]types.PrizeView, 0, len(prizes))
 	for _, p := range prizes {
-		r := p.Stock
-		if n, ok := remain[p.ID]; ok {
-			r = n
-		}
-		if !admin && p.Kind == "thank_you" {
-			views = append(views, types.PrizeView{Id: p.ID, Name: p.Name, Kind: p.Kind, Stock: 0, Weight: 0, ImageUrl: p.ImageURL, Remain: 0})
-			continue
-		}
 		views = append(views, types.PrizeView{
-			Id: p.ID, Name: p.Name, Kind: p.Kind, Stock: p.Stock, Weight: p.Weight, ImageUrl: p.ImageURL, Remain: r,
+			Id: p.ID, Name: p.Name, Kind: p.Kind, Stock: p.Stock, PerRound: p.PerRoundCount,
+			IsAll: p.IsAll, ImageUrl: p.ImageURL, Remain: p.Stock - int(wonByPrize[p.ID]),
 		})
 	}
-	var pn, wn int64
-	if act.Mode == "scheduled" {
-		pn, _ = a.DB.CountEnroll(ctx, act.ID)
-		if act.Status == "drawn" {
-			w, _ := a.DB.ScheduledWinners(ctx, act.ID)
-			wn = int64(len(w))
+	pn, _ := a.DB.CountParticipants(ctx, act.ID)
+	var wn int64
+	for _, n := range wonByPrize {
+		wn += n
+	}
+	var ui *types.UiConfig
+	if act.UiConfig != "" {
+		var c types.UiConfig
+		if json.Unmarshal([]byte(act.UiConfig), &c) == nil {
+			ui = &c
 		}
-	} else {
-		pn, _ = a.DB.CountDraws(ctx, act.ID)
-		wn, _ = a.DB.CountWins(ctx, act.ID)
 	}
 	return &types.ActivityDetail{
 		ActivityBrief: a.toBrief(*act),
 		Prizes:        views,
 		ParticipantN:  pn,
 		WinN:          wn,
+		UiConfig:      ui,
 	}, nil
 }
 
 func prizeSpecs(prizes []store.Prize) []engine.PrizeSpec {
 	out := make([]engine.PrizeSpec, 0, len(prizes))
 	for _, p := range prizes {
-		out = append(out, engine.PrizeSpec{ID: p.ID, Name: p.Name, Kind: p.Kind, Stock: p.Stock, Weight: p.Weight})
+		out = append(out, engine.PrizeSpec{ID: p.ID, Name: p.Name, Kind: p.Kind, Stock: p.Stock, PerRound: p.PerRoundCount, IsAll: p.IsAll})
 	}
 	return out
 }
 
-func prizeSpecsFromInput(startID uint64, in []types.PrizeInput) []engine.PrizeSpec {
+func prizeSpecsFromInput(in []types.PrizeInput) []engine.PrizeSpec {
 	out := make([]engine.PrizeSpec, 0, len(in))
 	for i, p := range in {
-		out = append(out, engine.PrizeSpec{ID: startID + uint64(i) + 1, Name: p.Name, Kind: p.Kind, Stock: p.Stock, Weight: p.Weight})
+		perRound := p.PerRound
+		if perRound <= 0 {
+			perRound = 1
+		}
+		out = append(out, engine.PrizeSpec{ID: uint64(i) + 1, Name: p.Name, Kind: p.Kind, Stock: p.Stock, PerRound: perRound, IsAll: p.IsAll})
 	}
 	return out
 }
 
-func prizeName(prizes []store.Prize, id uint64) string {
-	for _, p := range prizes {
-		if p.ID == id {
-			return p.Name
+func (a *App) persistDraw(ctx context.Context, rec store.DrawRecord) error {
+	var last error
+	for i := 0; i < 3; i++ {
+		err := a.DB.InsertDraw(ctx, rec)
+		if err == nil || isDup(err) {
+			return nil
 		}
+		last = err
+		time.Sleep(time.Duration(i+1) * 40 * time.Millisecond)
 	}
-	return ""
+	return last
 }
 
-func resultLabel(kind string) string {
-	if kind == "thank_you" {
-		return "thanks"
+func (a *App) issueRedeem(ctx context.Context, rec store.DrawRecord) string {
+	code, err := engine.RandomRedeemCode()
+	if err != nil {
+		return ""
 	}
-	return "win"
+	sum := sha256.Sum256([]byte(code))
+	r := store.Redemption{
+		TenantID: rec.TenantID, ActivityID: rec.ActivityID, UserID: rec.UserID,
+		PrizeID: rec.PrizeID, DrawRef: rec.PrizeToken,
+		CodeHash: hex.EncodeToString(sum[:]), CodePrefix: code[:8], Status: "unused",
+	}
+	if err := a.DB.InsertRedemption(ctx, r); err != nil {
+		if !isDup(err) {
+			logx.WithContext(ctx).Errorf("redeem issue: %v", err)
+		}
+		return ""
+	}
+	return code
 }
 
 func mapWinners(list []store.WinnerRow) []types.WinnerItem {
