@@ -1,0 +1,11 @@
+Log:
+  ServiceName: luckygo-worker
+  Level: info
+  Encoding: json
+
+Mysql:
+  DataSource: lucky:lucky@tcp(127.0.0.1:13306)/luckygo?parseTime=true&loc=UTC&charset=utf8mb4&timeout=5s
+
+Redis:
+  Host: 127.0.0.1:6379
+  Type: node
