@@ -1,0 +1,14 @@
+# 自备 frps 时：把 5173 以 HTTP(S) 暴露出去。
+# 1. 改 serverAddr / 域名
+# 2. frpc -c scripts/frpc.lottery.toml
+# 3. 把 https://你的域名 写入仓库根目录 .runtime/public-base.url
+#    或改 app/gateway/etc/luckygo-api.yaml 的 PublicBaseUrl 后重启网关
+#
+# serverAddr = "你的 VPS IP 或域名"
+# serverPort = 7000
+#
+# [[proxies]]
+# name = "luckygo-live"
+# type = "http"
+# localPort = 5173
+# customDomains = ["draw.example.com"]
