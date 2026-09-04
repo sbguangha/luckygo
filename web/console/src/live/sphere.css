@@ -1,0 +1,221 @@
+.live-page {
+  height: 100vh;
+  margin: 0;
+  overflow: hidden;
+  background: linear-gradient(to bottom, #131313 0%, #02101c 100%);
+  font-family: Helvetica, sans-serif;
+  color: #fff;
+}
+
+.live-page #container {
+  z-index: 3;
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.live-page .element {
+  width: 12vh;
+  height: 16vh;
+  box-shadow: 0 0 12px rgba(0, 255, 255, 0.5);
+  border: 1px solid rgba(127, 255, 255, 0.25);
+  text-align: center;
+  cursor: default;
+  transition: background-color 0.3s ease-in;
+  position: relative;
+}
+
+.live-page .element:hover {
+  box-shadow: 0 0 12px rgba(0, 255, 255, 0.75);
+  border: 1px solid rgba(127, 255, 255, 0.75);
+}
+
+.live-page .element .company {
+  position: absolute;
+  top: 1.2vh;
+  right: 0;
+  width: 100%;
+  font-size: 2vh;
+  color: rgba(127, 255, 255, 0.75);
+}
+
+.live-page .element .name {
+  position: absolute;
+  top: 4.6vh;
+  left: 0;
+  right: 0;
+  font-size: 2.9vh;
+  font-weight: bold;
+  color: rgba(255, 255, 255, 0.75);
+  text-shadow: 0 0 1vh rgba(0, 255, 255, 0.95);
+}
+
+.live-page .element .details {
+  position: absolute;
+  bottom: 1.2vh;
+  left: 0;
+  right: 0;
+  font-size: 1.6vh;
+  color: rgba(127, 255, 255, 0.75);
+}
+
+.live-page .prize.element {
+  transition: background-color 1.5s ease-in 0.3s;
+  background-color: rgba(253, 105, 0, 0.85) !important;
+  box-shadow: 0 0 12px rgba(253, 105, 0, 0.95);
+}
+
+.live-page .prize .company,
+.live-page .prize .details,
+.live-page .prize .name {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.live-page .prize.element .name {
+  text-shadow: none;
+}
+
+.live-top {
+  position: fixed;
+  top: 2vh;
+  left: 2vh;
+  z-index: 6;
+  font-size: 2.2vh;
+  letter-spacing: 0.2em;
+  color: rgba(127, 255, 255, 0.9);
+}
+
+.live-count {
+  position: fixed;
+  top: 2vh;
+  right: 2vh;
+  z-index: 6;
+  color: rgba(127, 255, 255, 0.85);
+  font-size: 1.8vh;
+}
+
+.live-hint {
+  position: fixed;
+  top: 6.5vh;
+  left: 0;
+  right: 0;
+  text-align: center;
+  z-index: 6;
+  color: rgba(127, 255, 255, 0.7);
+  font-size: 1.6vh;
+}
+
+.live-menu {
+  position: fixed;
+  bottom: 3vh;
+  left: 0;
+  right: 0;
+  z-index: 6;
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 1.6vh;
+}
+
+.live-btn {
+  color: rgba(127, 255, 255, 0.75);
+  background: transparent;
+  outline: 1px solid rgba(127, 255, 255, 0.75);
+  border: 0;
+  padding: 1.4vh 3.2vh;
+  font-size: 2vh;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.live-btn:hover {
+  background-color: rgba(0, 255, 255, 0.5);
+}
+
+.live-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.live-btn-join {
+  color: #fff;
+  outline: 1px solid rgba(253, 105, 0, 0.95);
+  background: rgba(253, 105, 0, 0.85);
+  animation: live-breath 1.6s linear infinite;
+  box-shadow: 0 0 15px rgba(253, 105, 0, 0.75);
+}
+
+.live-btn-draw {
+  animation: live-breath 1.6s linear infinite;
+  box-shadow: 0 0 15px rgb(127 255 255 / 75%);
+}
+
+@keyframes live-breath {
+  0% { transform: scale(0.96); opacity: 0.85; }
+  50% { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(0.96); opacity: 0.85; }
+}
+
+.live-toast {
+  position: fixed;
+  left: 50%;
+  top: 12vh;
+  transform: translateX(-50%);
+  z-index: 8;
+  padding: 1.2vh 2.4vh;
+  background: rgba(0, 127, 127, 0.55);
+  border: 1px solid rgba(127, 255, 255, 0.4);
+  color: #fff;
+  font-size: 2vh;
+}
+
+.live-qr-panel {
+  position: fixed;
+  left: 2vh;
+  top: 10vh;
+  z-index: 6;
+  width: 26vh;
+  padding: 1.6vh;
+  background: rgba(0, 20, 28, 0.72);
+  border: 1px solid rgba(127, 255, 255, 0.28);
+  text-align: center;
+}
+
+.live-qr-title {
+  color: rgba(127, 255, 255, 0.95);
+  font-size: 1.8vh;
+  font-weight: 700;
+  margin-bottom: 1vh;
+}
+
+.live-qr-img {
+  width: 22vh;
+  height: 22vh;
+  background: #fff;
+}
+
+.live-qr-ph {
+  width: 22vh;
+  height: 22vh;
+  margin: 0 auto;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.live-qr-url {
+  margin-top: 0.8vh;
+  font-size: 1.1vh;
+  color: rgba(180, 230, 230, 0.75);
+  word-break: break-all;
+}
+
+.live-qr-tip,
+.live-qr-warn {
+  margin: 0.8vh 0 0;
+  font-size: 1.3vh;
+  line-height: 1.4;
+  color: rgba(127, 255, 255, 0.75);
+}
+
+.live-qr-warn {
+  color: #ffb38a;
+}

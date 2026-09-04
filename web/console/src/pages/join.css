@@ -1,0 +1,97 @@
+.join-page {
+  min-height: 100vh;
+  margin: 0;
+  padding: 24px 18px 40px;
+  box-sizing: border-box;
+  background: linear-gradient(180deg, #02101c 0%, #0a2a33 100%);
+  color: #e8ffff;
+  font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.join-card {
+  width: min(420px, 100%);
+  margin-top: 8vh;
+  padding: 28px 22px 26px;
+  border: 1px solid rgba(127, 255, 255, 0.28);
+  background: rgba(0, 30, 36, 0.72);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  border-radius: 16px;
+}
+
+.join-brand {
+  margin: 0 0 8px;
+  letter-spacing: 0.18em;
+  color: rgba(127, 255, 255, 0.8);
+  font-size: 13px;
+}
+
+.join-card h1 {
+  margin: 0 0 10px;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.join-lead,
+.join-soft {
+  margin: 0 0 18px;
+  line-height: 1.55;
+  color: rgba(200, 245, 245, 0.82);
+  font-size: 15px;
+}
+
+.join-soft {
+  color: rgba(127, 255, 255, 0.75);
+}
+
+.join-label {
+  display: block;
+  margin: 10px 0 6px;
+  font-size: 14px;
+  color: rgba(127, 255, 255, 0.85);
+}
+
+.join-input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 48px;
+  padding: 0 14px;
+  border: 1px solid rgba(127, 255, 255, 0.35);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.28);
+  color: #fff;
+  font-size: 16px;
+}
+
+.join-hint {
+  margin: 12px 0 0;
+  color: #ffb38a;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.join-submit {
+  margin-top: 22px;
+  width: 100%;
+  height: 50px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(253, 105, 0, 0.92);
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.join-submit:disabled {
+  opacity: 0.55;
+}
+
+.join-done-name {
+  margin: 8px 0 16px;
+  font-size: 36px;
+  font-weight: 800;
+  color: #fff;
+  text-shadow: 0 0 18px rgba(0, 255, 255, 0.45);
+}
