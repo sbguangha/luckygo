@@ -16,4 +16,7 @@ tmp/
 *.log
 .env
 .env.local
+.runtime/
+web/console/tsconfig.tsbuildinfo
+
 coverage.out
