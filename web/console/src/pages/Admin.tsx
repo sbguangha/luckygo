@@ -21,7 +21,10 @@ export default function Admin() {
     <div className="admin-wrap">
       <div className="admin-bar">
         <Typography.Title level={4} style={{ margin: 0 }}>LuckyGo 商家后台</Typography.Title>
-        <Button onClick={() => { logout(); nav("/login"); }}>退出</Button>
+        <Space>
+          <Button type="primary" onClick={() => nav("/live")}>年会大屏</Button>
+          <Button onClick={() => { logout(); nav("/login"); }}>退出</Button>
+        </Space>
       </div>
       <Space align="start" size={16} wrap>
         <Card title="创建活动" style={{ width: 420 }}>

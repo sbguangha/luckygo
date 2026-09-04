@@ -37,7 +37,7 @@ export default function Login() {
 
   return (
     <div className="center-page">
-      <Card title="LuckyGo 营销抽奖" style={{ width: 420 }}>
+      <Card title="LuckyGo 营销抽奖" style={{ width: 420 }} extra={<a href="/live">年会大屏</a>}>
         <Tabs
           items={[
             {

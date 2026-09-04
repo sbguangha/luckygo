@@ -10,14 +10,24 @@
   },
   "dependencies": {
     "@ant-design/icons": "^5.6.1",
+    "@tweenjs/tween.js": "^25.0.0",
     "antd": "^5.27.1",
+    "canvas-confetti": "^1.9.4",
+    "dayjs": "^1.11.13",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.30.1"
+    "react-router-dom": "^6.30.1",
+    "sparticles": "^2.2.0",
+    "three": "^0.185.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@types/canvas-confetti": "^1.9.0",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
+    "@types/three": "^0.185.4",
     "@vitejs/plugin-react": "^4.7.0",
     "typescript": "^5.9.2",
     "vite": "^7.1.3"

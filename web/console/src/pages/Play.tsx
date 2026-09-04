@@ -4,7 +4,9 @@ import { useParams } from "react-router-dom";
 import { api, getAccount, getRole, getToken, logout, setSession, type ActivityDetail, type DrawResp, type Winner } from "../api";
 
 function uuid() {
-  return crypto.randomUUID();
+  const c = globalThis.crypto;
+  if (c && typeof c.randomUUID === "function") return c.randomUUID();
+  return `k-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function nextWheelDeg(current: number, index: number, n: number) {
