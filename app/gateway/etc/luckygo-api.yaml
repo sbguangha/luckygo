@@ -1,0 +1,22 @@
+Name: luckygo-api
+Host: 0.0.0.0
+Port: 8888
+Timeout: 5000
+MaxConns: 10000
+Log:
+  ServiceName: luckygo-api
+  Level: info
+  Encoding: json
+
+Auth:
+  AccessSecret: luckygo-dev-change-me-32bytes-min-ok
+  AccessExpire: 86400
+
+Mysql:
+  DataSource: lucky:lucky@tcp(127.0.0.1:13306)/luckygo?parseTime=true&loc=UTC&charset=utf8mb4&timeout=5s
+
+Redis:
+  Host: 127.0.0.1:6379
+  Type: node
+
+PublicBaseUrl: http://localhost:5173

@@ -1,0 +1,235 @@
+syntax = "v1"
+
+info (
+	title:   "LuckyGo"
+	desc:    "Production multi-tenant lottery SaaS"
+	version: "v1"
+)
+
+type (
+	IdResp {
+		Id uint64 `json:"id,string"`
+	}
+	OkResp {
+		Ok bool `json:"ok"`
+	}
+	RegisterTenantReq {
+		TenantName string `json:"tenantName"`
+		Account    string `json:"account"`
+		Password   string `json:"password"`
+		Nickname   string `json:"nickname,optional"`
+	}
+	LoginReq {
+		TenantName string `json:"tenantName"`
+		Account    string `json:"account"`
+		Password   string `json:"password"`
+	}
+	LoginResp {
+		Token    string `json:"token"`
+		Role     string `json:"role"`
+		Nickname string `json:"nickname"`
+		Tenant   string `json:"tenant"`
+	}
+	UserRegisterReq {
+		PublicId string `json:"publicId"`
+		Account  string `json:"account"`
+		Password string `json:"password"`
+		Nickname string `json:"nickname,optional"`
+	}
+	PrizeInput {
+		Name     string `json:"name"`
+		Kind     string `json:"kind"`
+		Stock    int    `json:"stock"`
+		Weight   int    `json:"weight"`
+		ImageUrl string `json:"imageUrl,optional"`
+	}
+	CreateActivityReq {
+		Title           string       `json:"title"`
+		Mode            string       `json:"mode"`
+		Timezone        string       `json:"timezone,optional"`
+		StartAt         int64        `json:"startAt"`
+		EndAt           int64        `json:"endAt"`
+		MaxDrawsPerUser int          `json:"maxDrawsPerUser"`
+		MaxEnrollments  int          `json:"maxEnrollments,optional"`
+		Prizes          []PrizeInput `json:"prizes"`
+	}
+	ActivityBrief {
+		Id              uint64 `json:"id,string"`
+		PublicId        string `json:"publicId"`
+		Title           string `json:"title"`
+		Mode            string `json:"mode"`
+		Status          string `json:"status"`
+		StartAt         int64  `json:"startAt"`
+		EndAt           int64  `json:"endAt"`
+		MaxDrawsPerUser int    `json:"maxDrawsPerUser"`
+		PlayUrl         string `json:"playUrl"`
+	}
+	PrizeView {
+		Id       uint64 `json:"id,string"`
+		Name     string `json:"name"`
+		Kind     string `json:"kind"`
+		Stock    int    `json:"stock"`
+		Weight   int    `json:"weight"`
+		ImageUrl string `json:"imageUrl"`
+		Remain   int    `json:"remain"`
+	}
+	ActivityDetail {
+		ActivityBrief
+		Prizes       []PrizeView `json:"prizes"`
+		ParticipantN int64       `json:"participantN"`
+		WinN         int64       `json:"winN"`
+	}
+	ListActivityReq {
+		Status string `form:"status,optional"`
+	}
+	ListActivityResp {
+		List []ActivityBrief `json:"list"`
+	}
+	IdPathReq {
+		Id uint64 `path:"id"`
+	}
+	PublicIdReq {
+		PublicId string `path:"publicId"`
+	}
+	DrawReq {
+		PublicId       string `json:"publicId"`
+		IdempotencyKey string `json:"idempotencyKey"`
+	}
+	DrawResp {
+		Result      string `json:"result"`
+		PrizeId     string `json:"prizeId"`
+		PrizeName   string `json:"prizeName"`
+		Kind        string `json:"kind"`
+		PrizeToken  string `json:"prizeToken"`
+		RedeemCode  string `json:"redeemCode,optional"`
+		RemainDraws int    `json:"remainDraws"`
+	}
+	MyPrizeItem {
+		PrizeName  string `json:"prizeName"`
+		Kind       string `json:"kind"`
+		Status     string `json:"status"`
+		RedeemCode string `json:"redeemCode,optional"`
+		WonAt      int64  `json:"wonAt"`
+		Activity   string `json:"activity"`
+	}
+	MyPrizesResp {
+		List []MyPrizeItem `json:"list"`
+	}
+	EnrollReq {
+		PublicId string `json:"publicId"`
+	}
+	FillAddressReq {
+		PrizeToken   string `json:"prizeToken"`
+		ContactName  string `json:"contactName"`
+		ContactPhone string `json:"contactPhone"`
+		Address      string `json:"address"`
+	}
+	RedeemReq {
+		Code string `json:"code"`
+	}
+	BlacklistReq {
+		Account string `json:"account"`
+		Reason  string `json:"reason,optional"`
+	}
+	WinnerItem {
+		Nickname  string `json:"nickname"`
+		PrizeName string `json:"prizeName"`
+		WonAt     int64  `json:"wonAt"`
+	}
+	WinnersResp {
+		List []WinnerItem `json:"list"`
+	}
+	FeedResp {
+		List []WinnerItem `json:"list"`
+	}
+)
+
+@server (
+	prefix: /api/v1
+	group:  auth
+)
+service luckygo-api {
+	@handler RegisterTenant
+	post /auth/register-tenant (RegisterTenantReq) returns (LoginResp)
+
+	@handler Login
+	post /auth/login (LoginReq) returns (LoginResp)
+
+	@handler RegisterUser
+	post /auth/register-user (UserRegisterReq) returns (LoginResp)
+}
+
+@server (
+	prefix: /api/v1
+	group:  pub
+)
+service luckygo-api {
+	@handler GetPublicActivity
+	get /play/:publicId (PublicIdReq) returns (ActivityDetail)
+
+	@handler PublicFeed
+	get /play/:publicId/feed (PublicIdReq) returns (FeedResp)
+
+	@handler PublicWinners
+	get /play/:publicId/winners (PublicIdReq) returns (WinnersResp)
+}
+
+@server (
+	jwt:    Auth
+	prefix: /api/v1
+	group:  user
+)
+service luckygo-api {
+	@handler Draw
+	post /draw (DrawReq) returns (DrawResp)
+
+	@handler Enroll
+	post /enroll (EnrollReq) returns (OkResp)
+
+	@handler MyPrizes
+	get /me/prizes returns (MyPrizesResp)
+
+	@handler FillAddress
+	post /me/address (FillAddressReq) returns (OkResp)
+}
+
+@server (
+	jwt:    Auth
+	prefix: /api/v1/admin
+	group:  admin
+)
+service luckygo-api {
+	@handler CreateActivity
+	post /activities (CreateActivityReq) returns (ActivityBrief)
+
+	@handler ListActivities
+	get /activities (ListActivityReq) returns (ListActivityResp)
+
+	@handler GetActivity
+	get /activities/:id (IdPathReq) returns (ActivityDetail)
+
+	@handler PublishActivity
+	post /activities/:id/publish (IdPathReq) returns (OkResp)
+
+	@handler PauseActivity
+	post /activities/:id/pause (IdPathReq) returns (OkResp)
+
+	@handler ResumeActivity
+	post /activities/:id/resume (IdPathReq) returns (OkResp)
+
+	@handler CancelActivity
+	post /activities/:id/cancel (IdPathReq) returns (OkResp)
+
+	@handler ForceDraw
+	post /activities/:id/draw (IdPathReq) returns (OkResp)
+
+	@handler Redeem
+	post /redeem (RedeemReq) returns (OkResp)
+
+	@handler BlacklistAdd
+	post /blacklist (BlacklistReq) returns (OkResp)
+
+	@handler ActivityWinners
+	get /activities/:id/winners (IdPathReq) returns (WinnersResp)
+}
+
