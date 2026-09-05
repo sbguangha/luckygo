@@ -129,7 +129,15 @@ func (h *Hub) handleJoin(c *gin.Context) {
 		OpenID:  openid,
 	})
 	if errors.Is(err, errAlreadyWon) {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "你已经抽过奖了，把机会留给同事吧"})
+		shown := name
+		if m, ok := h.lookupMember(userID); ok && m.Name != "" {
+			shown = m.Name
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"msg":  "你已经抽过奖了，把机会留给同事吧",
+			"data": gin.H{"already": true, "won": true, "name": shown},
+		})
 		return
 	}
 	if err != nil {

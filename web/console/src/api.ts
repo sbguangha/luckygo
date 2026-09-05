@@ -97,7 +97,7 @@ export const api = {
     post("/api/v1/me/address", d),
 
   lotteryJoin: (d: { user_id: string; user_name: string; staff_no?: string }) =>
-    post<{ already?: boolean; name?: string }>("/api/lottery/join", d),
+    post<{ already?: boolean; won?: boolean; name?: string }>("/api/lottery/join", d),
   lotteryParticipants: () =>
     req<{ names: string[]; count?: number; publicJoinUrl?: string }>("/api/lottery/participants"),
   lotteryDraw: (n = 3) => post<{ winners: string[]; remaining?: number }>("/api/lottery/draw", { n }),

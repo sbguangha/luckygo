@@ -25,7 +25,8 @@ export default function Join() {
   const [busy, setBusy] = useState(false);
   const [checking, setChecking] = useState(true);
   const [hint, setHint] = useState("");
-  const [doneName, setDoneName] = useState("");
+  const [shownName, setShownName] = useState("");
+  const [phase, setPhase] = useState<"form" | "inPool" | "won">("form");
   const [wechatOn, setWechatOn] = useState(false);
 
   const wxFail = useMemo(() => new URLSearchParams(window.location.search).get("wx") === "fail", []);
@@ -46,13 +47,17 @@ export default function Join() {
         if (s.nickname && !name) setName(s.nickname);
         if (me.inPool && me.name) {
           localStorage.setItem(JOINED_KEY, me.name);
-          setDoneName(me.name);
+          setShownName(me.name);
+          setPhase("inPool");
+          return;
+        }
+        if (me.won) {
+          localStorage.setItem(JOINED_KEY, me.name || "");
+          setShownName(me.name || "");
+          setPhase("won");
           return;
         }
         localStorage.removeItem(JOINED_KEY);
-        if (me.won) {
-          setHint("你已经参与过抽奖，把机会留给同事吧");
-        }
         if (s.wechatEnabled && isWeChat() && !s.wechatBound && !wxFail && !me.won) {
           window.location.replace("/api/lottery/wechat/login");
         }
@@ -77,7 +82,8 @@ export default function Join() {
       });
       const shown = r.name || n;
       localStorage.setItem(JOINED_KEY, shown);
-      setDoneName(shown);
+      setShownName(shown);
+      setPhase(r.won ? "won" : "inPool");
     } catch (err: unknown) {
       localStorage.removeItem(JOINED_KEY);
       setHint(joinErrorText(err));
@@ -97,13 +103,26 @@ export default function Join() {
     );
   }
 
-  if (doneName) {
+  if (phase === "won") {
+    return (
+      <div className="join-page">
+        <div className="join-card">
+          <p className="join-brand">LuckyGo 年会抽奖</p>
+          <h1>你已经抽过奖了</h1>
+          {shownName ? <p className="join-done-name">{shownName}</p> : null}
+          <p className="join-lead">这次机会已经用过，把名额留给同事吧。请看前方屏幕。</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === "inPool") {
     return (
       <div className="join-page">
         <div className="join-card">
           <p className="join-brand">LuckyGo 年会抽奖</p>
           <h1>你已在大屏上</h1>
-          <p className="join-done-name">{doneName}</p>
+          <p className="join-done-name">{shownName}</p>
           <p className="join-lead">请看前方屏幕，主持人开始后会从名单里抽取。不要关闭微信。</p>
         </div>
       </div>

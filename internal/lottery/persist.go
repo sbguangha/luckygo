@@ -106,9 +106,11 @@ func (p *rosterDB) listActive() ([]Member, error) {
 	out := make([]Member, 0, 64)
 	for rows.Next() {
 		var m Member
-		if err := rows.Scan(&m.UserID, &m.Name, &m.StaffNo, &m.Source, &m.OpenID, &m.JoinedAt); err != nil {
+		var joined float64
+		if err := rows.Scan(&m.UserID, &m.Name, &m.StaffNo, &m.Source, &m.OpenID, &joined); err != nil {
 			return nil, err
 		}
+		m.JoinedAt = int64(joined)
 		m.Status = "active"
 		out = append(out, m)
 	}
@@ -145,9 +147,9 @@ func (p *rosterDB) get(userID string) (Member, bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	var m Member
-	err := p.db.QueryRowContext(ctx, `SELECT user_id,name,staff_no,source,openid,status,CAST(UNIX_TIMESTAMP(created_at) AS UNSIGNED)
+	err := p.db.QueryRowContext(ctx, `SELECT user_id,name,staff_no,source,openid,status
 		FROM live_roster WHERE user_id=?`, userID).Scan(
-		&m.UserID, &m.Name, &m.StaffNo, &m.Source, &m.OpenID, &m.Status, &m.JoinedAt)
+		&m.UserID, &m.Name, &m.StaffNo, &m.Source, &m.OpenID, &m.Status)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Member{}, false, nil
 	}
