@@ -70,7 +70,7 @@ Remove-Item $logOut, $logErr -ErrorAction SilentlyContinue
 
 function Read-UrlFromLog([int]$Seconds) {
     $deadline = (Get-Date).AddSeconds($Seconds)
-    $rx = [regex]"https://[a-zA-Z0-9._-]+\.(?:trycloudflare\.com|cpolar\.(?:cn|io|top|vip)|ngrok-free\.app|ngrok\.(?:io|app|dev)|loca\.lt|pinggy\.link|pinggy\.io)"
+    $rx = [regex]"https://(?!api\.)[a-zA-Z0-9][a-zA-Z0-9._-]*\.(?:trycloudflare\.com|cpolar\.(?:cn|io|top|vip)|ngrok-free\.app|ngrok\.(?:io|app|dev)|loca\.lt|pinggy\.link|pinggy\.io)"
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Milliseconds 400
         $text = ""
