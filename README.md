@@ -81,16 +81,25 @@ powershell -ExecutionPolicy Bypass -File scripts/expose-5173.ps1
 
 `app/gateway/etc/luckygo-api.yaml` 里 `Wechat.AppId / AppSecret` 配认证服务号；网页授权回调为 `{PublicBaseUrl}/api/lottery/wechat/callback`。不配则扫码后手填姓名，局域网年会即可用。
 
-压测 `POST /join`（限流下应出现大量 503，进程保持稳定）：
+压测 `POST /join`（本机 wrk 装在 WSL Ubuntu；脚本每次生成不同中文姓名。限流 100 次/秒，压满时会出现大量 503，进程应保持稳定）：
+
+先打开大屏 `http://localhost:5173/live`，再在仓库根目录执行：
+
+```powershell
+# 看名字陆续上墙（约 5 人/秒，不走 wrk）
+powershell -ExecutionPolicy Bypass -File scripts/wrk-join.ps1 -Watch
+
+# 用 wrk 打一波随机姓名（2 线程 / 16 连接 / 8 秒）
+powershell -ExecutionPolicy Bypass -File scripts/wrk-join.ps1
+
+# 压到限流（4 线程 / 200 连接 / 10 秒，预期大量 503）
+powershell -ExecutionPolicy Bypass -File scripts/wrk-join.ps1 -Stress
+```
+
+也可以在 WSL 里直接跑。WSL2 打不到 Windows 的 `127.0.0.1`，要用本机局域网 IP 或 WSL 网卡 IP（常见 `172.28.32.1`）：
 
 ```bash
-# wrk（随机 user_id）
-wrk -t4 -c200 -d10s -s scripts/lottery-join.lua http://127.0.0.1:8888/api/lottery/join
-
-# hey
-hey -n 3000 -c 200 -m POST -H "Content-Type: application/json" \
-  -d "{\"user_id\":\"u1\",\"user_name\":\"张三\"}" \
-  http://127.0.0.1:8888/api/lottery/join
+wrk -t2 -c16 -d8s -s /mnt/d/1_code/Go-zero/scripts/lottery-join.lua http://172.28.32.1:8888/api/lottery/join
 ```
 
 单测：
@@ -98,6 +107,31 @@ hey -n 3000 -c 200 -m POST -H "Content-Type: application/json" \
 ```bash
 go test ./internal/lottery -count=1
 ```
+
+## 并发压测结果（2026-09-05，可放简历）
+
+本机 `wrk -t2 -c16 -d8s` 打 `POST /api/lottery/join`（每次随机中文姓名）。原始日志：`docs/loadtest/wrk-join-20260905.log`。
+
+| 指标 | 实测 |
+|------|------|
+| HTTP QPS | **6823** |
+| 总请求 / 时长 | 55195 / 8.09s |
+| 延迟 P50 / P99 | 2.25ms / **9.45ms** |
+| HTTP 2xx 成功报名 | 909（令牌桶 100/s + 突发） |
+| HTTP 503 | 54286（限流预期，进程未崩溃） |
+| 压测后在线人数 | 1319 |
+
+![wrk 压测结果](docs/loadtest/wrk-join-result.png)
+
+![大屏展示并发写入的随机姓名](docs/loadtest/live-concurrent-names.png)
+
+根目录也各有一份同名 PNG：`wrk-join-result.png`、`live-concurrent-names.png`。
+
+**简历不要写「成功报名 6800 QPS」。** 6800 是网关收包速率；真正写入名单被限流钉在 100 次/秒。建议写法：
+
+- 使用 Go / go-zero 实现年会抽奖网关：扫码报名热路径为 `sync.Map` + 令牌桶，抽奖由 Redis Lua `SPOP` 原子弹出，结果不在前端随机。
+- 本机 wrk（2 线程 / 16 连接 / 8s）将报名接口打到约 **6.8k HTTP QPS**，P99 **9.45ms**；过载请求稳定返回 503，成功写入约 100/s，压测后大屏展示 **1319** 人在线，进程未崩溃。
+- 引擎单测覆盖并发抽取不重复、不超发、幂等重放与取消回滚（`go test ./internal/engine`）。
 
 ## 目录
 

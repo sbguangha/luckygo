@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>LuckyGo 并发压测 · 2026-09-05</title>
+  <style>
+    body { margin: 0; font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: #0f1419; color: #e8eef2; }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 36px 40px 48px; }
+    h1 { font-size: 28px; font-weight: 700; margin: 0 0 6px; letter-spacing: 0.02em; }
+    .sub { color: #8aa0ad; font-size: 14px; margin-bottom: 28px; }
+    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+    .stat { background: #182027; border: 1px solid #2a3840; padding: 16px 14px; }
+    .stat b { display: block; font-size: 26px; line-height: 1.2; color: #7ee0d0; }
+    .stat span { display: block; margin-top: 6px; color: #8aa0ad; font-size: 12px; }
+    .row { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 16px; }
+    pre { margin: 0; background: #11181d; border: 1px solid #2a3840; padding: 16px 18px; font-size: 13px; line-height: 1.45; color: #c6f6ec; overflow: auto; }
+    h2 { font-size: 16px; margin: 0 0 10px; color: #c5d4dc; }
+    .note { margin-top: 22px; font-size: 13px; line-height: 1.6; color: #b7c6ce; }
+    .note strong { color: #e8eef2; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>LuckyGo · POST /api/lottery/join 并发压测</h1>
+    <div class="sub">本机 Windows + WSL wrk · 2026-09-05 08:40 CST · 热路径：go-zero 网关 + Gin + sync.Map + 令牌桶 100 req/s</div>
+    <div class="grid">
+      <div class="stat"><b>6,823</b><span>HTTP 请求 / 秒</span></div>
+      <div class="stat"><b>55,195</b><span>8.09 秒总请求</span></div>
+      <div class="stat"><b>2.25 ms</b><span>延迟 P50</span></div>
+      <div class="stat"><b>9.45 ms</b><span>延迟 P99</span></div>
+    </div>
+    <div class="row">
+      <div>
+        <h2>wrk 原始输出</h2>
+        <pre>Running 8s test @ http://172.28.32.1:8888/api/lottery/join
+  2 threads and 16 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency     2.49ms    2.11ms  62.06ms   92.89%
+    Req/Sec     3.44k   676.79     7.24k    86.96%
+  Latency Distribution
+     50%    2.25ms
+     75%    2.86ms
+     90%    3.77ms
+     99%    9.45ms
+  55195 requests in 8.09s, 27.63MB read
+  Non-2xx or 3xx responses: 54286
+Requests/sec:   6823.35
+Transfer/sec:      3.42MB</pre>
+      </div>
+      <div>
+        <h2>结果怎么读</h2>
+        <div class="stat" style="margin-bottom:12px"><b>909</b><span>HTTP 2xx 成功报名（约 100/s × 8s + 突发）</span></div>
+        <div class="stat" style="margin-bottom:12px"><b>54,286</b><span>HTTP 503 被令牌桶挡住（预期）</span></div>
+        <div class="stat"><b>1,319</b><span>压测后内存池累计人数</span></div>
+      </div>
+    </div>
+    <p class="note">
+      <strong>结论（可写进简历，但不要写成「成功报名 6800 QPS」）：</strong>
+      16 条长连接把网关打到约 6800 HTTP QPS，P99 小于 10ms，进程未崩溃；
+      业务限流把真正写入名单的速度钉在 100 次/秒，多出来的请求稳定返回 503。
+      这证明的是 Go 热路径扛得住突发，并且用限流保住可用性，而不是无限写入。
+    </p>
+  </div>
+</body>
+</html>
